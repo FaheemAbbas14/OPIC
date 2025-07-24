@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000">
+
+    <!-- Camera Preview -->
+    <androidx.camera.view.PreviewView
+        android:id="@+id/previewView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:focusable="true"
+        android:focusableInTouchMode="true"
+        android:layout_gravity="center" />
+
+    <!-- Focus Ring -->
+    <View
+        android:id="@+id/focusRing"
+        android:layout_width="80dp"
+        android:layout_height="80dp"
+        android:background="@drawable/camera"
+        android:backgroundTint="@android:color/white"
+        android:visibility="gone" />
+
+    <!-- Left Side Panel -->
+    <LinearLayout
+        android:id="@+id/leftPanel"
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:layout_gravity="start|center_vertical"
+        android:orientation="vertical"
+        android:padding="8dp"
+        android:gravity="center">
+
+        <ImageView
+            android:id="@+id/resolutionIcon"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:src="@drawable/maximize"
+            android:tint="@color/white"
+            android:contentDescription="Resolution" />
+
+
+
+        <ImageView
+            android:id="@+id/hdrIcon"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:src="@drawable/refresh_2"
+            android:layout_marginTop="16dp"
+            android:contentDescription="HDR" />
+
+        <ImageView
+            android:id="@+id/stabilizeIcon"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:src="@drawable/flash_circle"
+            android:layout_marginTop="16dp"
+            android:contentDescription="Stabilization" />
+
+        <ImageView
+            android:id="@+id/micIcon"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_marginTop="16dp"
+            android:src="@drawable/clock"
+            android:contentDescription="Mute Mic" />
+    </LinearLayout>
+
+    <!-- Right Side Panel -->
+    <LinearLayout
+        android:id="@+id/rightPanel"
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:layout_gravity="end|center_vertical"
+        android:orientation="vertical"
+        android:padding="8dp"
+        android:gravity="center">
+
+        <TextView android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="6"
+            android:textColor="@android:color/white"/>
+        <TextView android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="3"
+            android:textColor="@android:color/white"/>
+        <TextView android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="2"
+            android:textColor="@android:color/white"/>
+
+        <TextView
+            android:id="@+id/zoomLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="1.2x"
+            android:textColor="@android:color/holo_orange_light"
+            android:textSize="16sp"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="8dp" />
+
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="0.6" android:textColor="@android:color/white"/>
+
+        <ImageButton
+            android:id="@+id/flipCamera"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginTop="16dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="Flip Camera" />
+
+        <ImageButton
+            android:id="@+id/recordButton"
+            android:layout_width="72dp"
+            android:layout_height="72dp"
+            android:layout_marginTop="16dp"
+            android:background="@drawable/circle_button_bg"
+            android:contentDescription="Record Video" />
+
+        <ImageView
+            android:id="@+id/thumbnailPreview"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginTop="16dp"
+            android:contentDescription="Gallery Thumbnail" />
+    </LinearLayout>
+
+    <!-- Mode Selector (Rotated Text) -->
+    <LinearLayout
+        android:id="@+id/modeSelector"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_vertical|end"
+        android:orientation="vertical"
+        android:rotation="270"
+        android:translationY="-100dp">
+
+        <TextView
+            android:id="@+id/photoMode"
+            android:layout_width="80dp"
+            android:layout_height="40dp"
+            android:gravity="center"
+            android:text="PHOTO"
+            android:textColor="@android:color/white"
+            android:textSize="14sp"
+            android:padding="4dp" />
+
+        <TextView
+            android:id="@+id/videoMode"
+            android:layout_width="80dp"
+            android:layout_height="40dp"
+            android:gravity="center"
+            android:text="VIDEO"
+            android:textColor="@android:color/holo_orange_light"
+            android:textSize="14sp"
+            android:padding="4dp" />
+
+        <TextView
+            android:id="@+id/portraitMode"
+            android:layout_width="80dp"
+            android:layout_height="40dp"
+            android:gravity="center"
+            android:text="PORTRAIT"
+            android:textColor="@android:color/white"
+            android:textSize="14sp"
+            android:padding="4dp" />
+    </LinearLayout>
+
+    <!-- Bottom Manual Controls -->
+    <LinearLayout
+        android:id="@+id/bottomControls"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="12dp">
+
+        <SeekBar
+            android:id="@+id/zoomSlider"
+            android:layout_width="240dp"
+            android:layout_height="wrap_content" />
+
+        <SeekBar
+            android:id="@+id/focusSlider"
+            android:layout_width="240dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp" />
+    </LinearLayout>
+</FrameLayout>

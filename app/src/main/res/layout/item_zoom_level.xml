@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/itemContainer"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingVertical="6dp"
+    android:paddingStart="12dp"
+    android:paddingEnd="12dp">
+
+    <!-- Tick line -->
+
+    <!-- Dot + Zoom text -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <!-- Dot -->
+        <View
+            android:id="@+id/selectedDot"
+            android:layout_width="8dp"
+            android:layout_height="8dp"
+            android:layout_marginEnd="4dp"
+            android:background="@drawable/dot_circle"
+            android:visibility="gone" />
+
+        <!-- Zoom text -->
+        <TextView
+            android:id="@+id/zoomText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="#666666"
+            android:visibility="visible"
+            android:textSize="14sp"
+            android:textStyle="normal" />
+        <com.example.myapplication.OpicTextView1
+            android:id="@+id/opiczoomText"
+            android:layout_width="@dimen/_30sdp"
+            android:layout_height="@dimen/_20sdp"
+            android:visibility="gone" />
+
+
+            />
+        <Space
+            android:layout_width="6dp"
+            android:layout_height="0dp" />
+        <View
+            android:id="@+id/tickLine"
+            android:layout_width="12dp"
+            android:layout_height="1dp"
+            android:background="@color/white" />
+
+        <!-- Space between tick and text -->
+        <Space
+            android:layout_width="6dp"
+            android:layout_height="0dp" />
+
+    </LinearLayout>
+</LinearLayout>

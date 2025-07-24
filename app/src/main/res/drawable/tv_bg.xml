@@ -1,0 +1,16 @@
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+
+    <!-- Gradient fill instead of solid color -->
+    <gradient
+        android:startColor="#1CF3FF"
+        android:endColor="#FD2F55"
+        android:angle="135" /> <!-- You can use 0, 45, 90, 135 etc. -->
+
+    <!-- Stroke (still single color only) -->
+    <stroke
+        android:width="0dp"
+        android:color="@android:color/transparent" /> <!-- Stroke must be a solid color -->
+
+    <corners android:radius="@dimen/_24sdp" />
+</shape>

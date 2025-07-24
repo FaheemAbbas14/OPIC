@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000">
+
+
+
+    <!-- Camera Preview -->
+    <androidx.camera.view.PreviewView
+        android:id="@+id/previewView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- Control Buttons Container -->
+
+
+    <!-- Left Side Panel -->
+    <LinearLayout
+        android:id="@+id/leftPanel"
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:layout_gravity="start|center_vertical"
+        android:orientation="vertical"
+        android:padding="8dp"
+        android:gravity="center">
+
+        <ImageView
+            android:id="@+id/resolutionIcon"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:src="@drawable/maximize"
+            android:tint="@color/white"
+            android:contentDescription="Resolution" />
+
+
+
+        <ImageView
+            android:id="@+id/hdrIcon"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:src="@drawable/refresh_2"
+            android:layout_marginTop="16dp"
+            android:contentDescription="HDR" />
+
+        <ImageView
+            android:id="@+id/stabilizeIcon"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:src="@drawable/flash_circle"
+            android:layout_marginTop="16dp"
+            android:contentDescription="Stabilization" />
+
+        <ImageView
+            android:id="@+id/micIcon"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_marginTop="16dp"
+            android:src="@drawable/clock"
+            android:contentDescription="Mute Mic" />
+    </LinearLayout>
+
+
+    <LinearLayout
+        android:id="@+id/buttonContainer"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="32dp"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:padding="12dp"
+        android:background="@android:color/transparent">
+
+        <!-- Photo Button -->
+        <ImageButton
+            android:id="@+id/photoButton"
+            android:layout_width="72dp"
+            android:layout_height="72dp"
+            android:layout_marginEnd="24dp"
+            android:background="@drawable/circle_button_bg"
+            android:scaleType="centerInside"
+            android:src="@drawable/ic_camera_white"
+            android:contentDescription="Take Photo" />
+
+        <!-- Video Button -->
+        <ImageButton
+            android:id="@+id/videobutton"
+            android:layout_width="72dp"
+            android:layout_height="72dp"
+            android:background="@drawable/circle_button_bg"
+            android:scaleType="centerInside"
+            android:src="@drawable/ic_video_white"
+            android:contentDescription="Record Video" />
+    </LinearLayout>
+
+</FrameLayout>

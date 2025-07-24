@@ -1,0 +1,15 @@
+<!-- res/drawable/timer_border.xml -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+
+    <!-- Transparent or dim center -->
+    <solid android:color="#66000000" /> <!-- semi-transparent black -->
+
+    <!-- Stroke mimicking dual-color glow (approximation using one color) -->
+    <stroke
+        android:width="2dp"
+        android:color="#99E6F7FF" /> <!-- light bluish-white (fake glow) -->
+
+    <!-- Rounded corners -->
+    <corners android:radius="24dp" />
+</shape>
