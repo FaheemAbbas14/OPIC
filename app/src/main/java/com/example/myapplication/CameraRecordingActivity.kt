@@ -60,6 +60,7 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 import android.provider.MediaStore
 import android.content.ContentValues
+import android.content.Intent
 import android.content.res.ColorStateList
 import android.content.res.Resources
 import android.graphics.Bitmap
@@ -86,6 +87,7 @@ import androidx.camera.camera2.interop.Camera2CameraControl
 import androidx.camera.camera2.interop.CaptureRequestOptions
 import androidx.camera.video.FallbackStrategy
 import androidx.camera.video.MediaStoreOutputOptions
+import androidx.core.content.FileProvider
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.setPadding
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -156,6 +158,7 @@ lateinit var overlay:View
          overlay = findViewById<View>(R.id.zoomDragOverlay)
        // timerView.timerText = "00:01:23"
 
+        pruneOldCacheVideos(2)
         val recyclerView = findViewById<RecyclerView>(R.id.zoomRecyclerView)
        // setupZoomRecyclerView()
         if (!hasPermissions()) {
@@ -476,40 +479,46 @@ lateinit var overlay:View
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
     private fun startVideoRecording() {
         val videoCapture = this.videoCapture ?: return
+
         val name = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", Locale.US)
             .format(System.currentTimeMillis())
+        val outDir = cacheVideoDir()
+        if (!outDir.exists()) outDir.mkdirs()
 
-        val contentValues = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
-            put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
-            put(MediaStore.MediaColumns.RELATIVE_PATH, "DCIM/CameraXVideos")
-        }
+        val outFile = File(outDir, "$name.mp4")
 
-        val mediaStoreOutput = MediaStoreOutputOptions.Builder(
-            contentResolver,
-            MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-        ).setContentValues(contentValues) // ✅ ensure new file
-            .build()
+        val fileOutput = FileOutputOptions.Builder(outFile).build()
 
-        pausedTime = 0L // ✅ reset on every new recording
+        pausedTime = 0L
         recording = videoCapture.output
-            .prepareRecording(this, mediaStoreOutput)
+            .prepareRecording(this, fileOutput)
             .withAudioEnabled()
             .start(ContextCompat.getMainExecutor(this)) { recordEvent ->
                 when (recordEvent) {
                     is VideoRecordEvent.Start -> {
                         startTimer()
                     }
-
                     is VideoRecordEvent.Finalize -> {
                         stopTimer()
                         recording = null
                         if (!recordEvent.hasError()) {
-                            Toast.makeText(this, "Video saved successfully", Toast.LENGTH_SHORT).show()
+                            // Use FileProvider (content://) from cache
+                            val cacheUri = getCacheFileProviderUri(outFile)
+                            recordedVideoUri = cacheUri
+                            // Share straight from cache (no MediaStore copy)
+//                            shareVideoToWhatsAppFromCache(cacheUri)
+                            Toast.makeText(this, "Video saved to cache: "+recordedVideoUri, Toast.LENGTH_SHORT).show()
+                        } else {
+                            // Optionally delete a partial/corrupt file
+                            if (outFile.exists()) outFile.delete()
                         }
                     }
                 }
             }
+    }
+
+    private fun getCacheFileProviderUri(file: File): Uri {
+        return FileProvider.getUriForFile(this, "${packageName}.fileprovider", file)
     }
 
     override fun onStop() {
@@ -835,4 +844,35 @@ lateinit var overlay:View
         }
     }
 
+    private fun cacheVideoDir(): File {
+        return externalCacheDir ?: cacheDir
+    }
+
+    private fun moveCacheVideoToGallery(src: File) {
+        val resolver = contentResolver
+        val name = src.nameWithoutExtension
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+            put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, "DCIM/CameraXVideos")
+            put(MediaStore.Video.Media.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values) ?: return
+        resolver.openOutputStream(uri)?.use { out ->
+            src.inputStream().use { it.copyTo(out) }
+        }
+        values.clear()
+        values.put(MediaStore.Video.Media.IS_PENDING, 0)
+        resolver.update(uri, values, null, null)
+        // Optionally delete the cache copy after promoting
+        // src.delete()
+    }
+
+    private fun pruneOldCacheVideos(days: Int = 7) {
+        val dir = cacheVideoDir()
+        val cutoff = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(days.toLong())
+        dir.listFiles { f -> f.isFile && f.extension.equals("mp4", true) }?.forEach { f ->
+            if (f.lastModified() < cutoff) f.delete()
+        }
+    }
 }
