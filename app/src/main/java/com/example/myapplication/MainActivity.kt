@@ -173,6 +173,7 @@ class MainActivity : ComponentActivity() {
 
         zoomSlider.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                Log.d("CameraX", "Zoom progress: $progress")
                 val zoomRatio = minZoom + (progress / 10f)
                 cameraControl.setZoomRatio(zoomRatio.coerceAtMost(maxZoom))
 

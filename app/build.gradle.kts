@@ -5,12 +5,12 @@ plugins {
 
 android {
     namespace = "com.example.myapplication"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.example.myapplication"
         minSdk = 24
-        targetSdk = 34
+        targetSdk = 35
         versionCode = 1
         versionName = "1.0"
 
@@ -86,4 +86,6 @@ dependencies {
     implementation("com.intuit.sdp:sdp-android:1.0.5")
     implementation("com.github.MasayukiSuda:Mp4Composer-android:v0.4.1")
 
+ implementation("androidx.media3:media3-transformer:1.5.1")
+ implementation("androidx.media3:media3-common:1.5.1")
 }

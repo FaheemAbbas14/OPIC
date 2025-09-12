@@ -1,0 +1,26 @@
+<resources>
+    <declare-styleable name="AngleLineView">
+        <attr name="alv_angle" format="float" />
+        <attr name="alv_angleOffset" format="float" />
+        <attr name="alv_color" format="color" />
+        <attr name="alv_strokeWidth" format="dimension" />
+        <attr name="alv_lineLengthRatio" format="float" /> <!-- 0..1 -->
+        <attr name="alv_roundCaps" format="boolean" />
+        <attr name="alv_square" format="boolean" />
+    </declare-styleable>
+    <declare-styleable name="RotationLineOverlay">
+        <!-- Visuals -->
+        <attr name="lineColor" format="color" />
+        <attr name="strokeWidth" format="dimension" />
+
+        <!-- Behavior -->
+        <attr name="smoothing" format="float" />           <!-- 0..1 (smaller = smoother) -->
+        <attr name="angleOffset" format="float" />         <!-- degrees, e.g. +90 -->
+        <attr name="inverted" format="boolean" />          <!-- flip 180° -->
+        <attr name="mode" format="enum">
+            <enum name="followDevice" value="0" />
+            <enum name="fixed" value="1" />
+        </attr>
+        <attr name="fixedAngle" format="float" />          <!-- used when mode=fixed -->
+    </declare-styleable>
+</resources>

@@ -2,27 +2,64 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/root"
-    android:orientation="vertical"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#000000">
+    android:background="#000000"
+    android:orientation="vertical">
+
+
     <!-- Camera Preview -->
     <androidx.camera.view.PreviewView
         android:id="@+id/previewView"
         android:layout_width="match_parent"
+        android:layout_height="match_parent"
         android:focusable="true"
-        app:scaleType="fillCenter"
         android:focusableInTouchMode="true"
-        android:layout_height="match_parent" />
+        app:scaleType="fillCenter" />
+
+    <LinearLayout
+        android:id="@+id/llRotationMessage"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@android:color/transparent"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:visibility="gone">
+
+        <ImageView
+            android:id="@+id/rotateIcon"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/rotate_icon" />
+
+        <TextView
+            android:id="@+id/rotateMessage"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingTop="8dp"
+            android:text="Rotate your phone to Landscape"
+            android:textColor="@android:color/white"
+            android:textSize="16sp" />
+    </LinearLayout>
+
+    <com.example.overlay.RotationLineOverlay
+        android:id="@+id/lineOverlay"
+        android:layout_width="200dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:clickable="false"
+        android:focusable="false"
+        />
 
     <View
         android:id="@+id/focusRing"
         android:layout_width="80dp"
         android:layout_height="80dp"
+        android:layout_gravity="top|start"
         android:background="@drawable/camera"
-        android:visibility="gone"
         android:backgroundTint="@color/white"
-        android:layout_gravity="top|start" />
+        android:visibility="gone" />
 
     <!-- Timer Text (top center) -->
 
@@ -30,32 +67,33 @@
         android:id="@+id/rootLayout"
         android:layout_width="match_parent"
         android:layout_height="match_parent">
+        <!-- Overlay View -->
 
         <!-- Button vertical layout (camera controls) -->
         <LinearLayout
             android:id="@+id/buttonLayout"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:gravity="center_vertical"
-            android:padding="@dimen/_10sdp"
             android:layout_gravity="end|center_vertical"
             android:layout_marginEnd="@dimen/_50sdp"
-            android:background="@android:color/transparent">
+            android:background="@android:color/transparent"
+            android:gravity="center_vertical"
+            android:orientation="vertical"
+            android:padding="@dimen/_10sdp">
 
             <TextView
                 android:id="@+id/stopButton"
                 android:layout_width="@dimen/_20sdp"
                 android:layout_height="@dimen/_20sdp"
-                android:background="@android:color/transparent"
-                android:text="MF"
-                android:textColor="@color/black"
-                android:gravity="center"
-                android:textStyle="bold"
-                android:textSize="@dimen/_8ssp"
                 android:layout_marginLeft="@dimen/_10sdp"
                 android:layout_marginBottom="@dimen/_10sdp"
-                android:scaleType="centerInside" />
+                android:background="@android:color/transparent"
+                android:gravity="center"
+                android:scaleType="centerInside"
+                android:text="MF"
+                android:textColor="@color/black"
+                android:textSize="@dimen/_8ssp"
+                android:textStyle="bold" />
 
 
             <ImageButton
@@ -63,45 +101,45 @@
                 android:layout_width="@dimen/_50sdp"
                 android:layout_height="@dimen/_50sdp"
                 android:background="@drawable/circle_button_bg"
-                android:scaleType="centerInside"
+                android:padding="@dimen/_14sdp"
 
-                android:padding="@dimen/_14sdp" />
+                android:scaleType="centerInside" />
 
             <ImageButton
                 android:id="@+id/videobuttonblack"
                 android:layout_width="@dimen/_23sdp"
                 android:layout_height="@dimen/_23sdp"
-                android:layout_marginTop="@dimen/_10sdp"
                 android:layout_marginStart="@dimen/_10sdp"
+                android:layout_marginTop="@dimen/_10sdp"
                 android:background="@drawable/ring_circle_black1"
                 android:padding="@dimen/_4sdp"
                 android:src="@drawable/zoomwhite" />
         </LinearLayout>
+
         <com.example.myapplication.OpicTextView
             android:id="@+id/tv_opic_spartial"
             android:layout_width="@dimen/_80sdp"
             android:layout_height="@dimen/_24sdp"
-            android:layout_marginRight="@dimen/_90sdp"
             android:layout_gravity="end|center_vertical"
-           android:rotation="270"
+            android:layout_marginRight="@dimen/_90sdp"
             android:padding="@dimen/_2sdp"
+            android:rotation="270"
             android:textSize="@dimen/_11ssp"
-            android:textStyle="bold"
-            />
+            android:textStyle="bold" />
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/zoomRecyclerView"
             android:layout_width="wrap_content"
             android:layout_height="250dp"
-            android:orientation="vertical"
-            app:reverseLayout="true"
-            android:overScrollMode="never"
-            android:layout_marginRight="@dimen/_100sdp"
             android:layout_gravity="end|center_vertical"
+            android:layout_marginRight="@dimen/_100sdp"
             android:clipToPadding="false"
+            android:orientation="vertical"
+            android:overScrollMode="never"
             android:paddingTop="40dp"
-            android:visibility="gone"
             android:paddingBottom="40dp"
+            android:visibility="gone"
+            app:reverseLayout="true"
 
             />
 
@@ -110,137 +148,143 @@
             android:id="@+id/li_Zoom"
             android:layout_width="@dimen/_35sdp"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:gravity="center"
             android:layout_gravity="end|center_vertical"
             android:layout_marginRight="@dimen/_120sdp"
-            android:padding="@dimen/_2sdp"
             android:background="@drawable/bg_zoom_container"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:padding="@dimen/_2sdp"
             android:visibility="invisible">
-            <TextView
-                android:id="@+id/zoom_5x"
-                android:text="5.0x"
-                android:visibility="gone"
-                style="@style/ZoomLabel"
-                 />
-            <TextView
-                android:id="@+id/zoom_4x"
-                android:text="4.0x"
-                style="@style/ZoomLabel"
-                />
-            <TextView
-                android:id="@+id/zoom_3x"
-                android:text="3.0x"
-                style="@style/ZoomLabel" />
-            <TextView
-                android:id="@+id/zoom_2x"
-                android:text="2.0x"
-                style="@style/ZoomLabel" />
-            <TextView
-                android:id="@+id/zoom_13x"
-                android:text="1.8x"
-                style="@style/ZoomLabel"/>
-            <TextView
-                android:id="@+id/zoom_10x"
-                android:text="1.5x"
-                style="@style/ZoomLabel" />
 
             <TextView
-                android:id="@+id/zoom_08x"
-                android:text="1.2x"
-                style="@style/ZoomLabel" />
+                android:id="@+id/zoom_5x"
+                style="@style/ZoomLabel"
+                android:text="5.0x"
+                android:visibility="gone" />
+
             <TextView
-                android:id="@+id/zoom_05x"
-                android:text="1.0x"
-               style="@style/ZoomLabel" />
+                android:id="@+id/zoom_4x"
+                style="@style/ZoomLabel"
+                android:text="4.0x" />
+
+            <TextView
+                android:id="@+id/zoom_3x"
+                style="@style/ZoomLabel"
+                android:text="3.0x" />
+
+            <TextView
+                android:id="@+id/zoom_2x"
+                style="@style/ZoomLabel"
+                android:text="2.0x" />
+
+            <TextView
+                android:id="@+id/zoom_18x"
+                style="@style/ZoomLabel"
+                android:text="1.8x" />
+
+            <TextView
+                android:id="@+id/zoom_15x"
+                style="@style/ZoomLabel"
+                android:text="1.5x" />
+
+            <TextView
+                android:id="@+id/zoom_12x"
+                style="@style/ZoomLabel"
+                android:text="1.2x" />
+
+            <TextView
+                android:id="@+id/zoom_1x"
+                style="@style/ZoomLabel"
+                android:text="1.0x" />
         </LinearLayout>
+
         <View
             android:id="@+id/zoomDragOverlay"
             android:layout_width="@dimen/_35sdp"
             android:layout_height="wrap_content"
-            android:layout_marginRight="@dimen/_120sdp"
             android:layout_gravity="end|center_vertical"
-            android:background="@android:color/transparent" />
+            android:layout_marginRight="@dimen/_120sdp"
+            android:background="@android:color/transparent"
+            android:visibility="gone" />
 
     </FrameLayout>
 
-<TextView
+    <TextView
         android:id="@+id/timerText"
         android:layout_width="@dimen/_60sdp"
         android:layout_height="wrap_content"
-        android:padding="@dimen/_4sdp"
         android:layout_gravity="top|center_horizontal"
         android:layout_marginTop="32dp"
-        android:text="00:00"
-        android:textSize="@dimen/_12ssp"
-        android:gravity="center"
-
         android:background="@drawable/timer_bg"
-        android:textColor="#FFFFFF"
         android:fontFamily="monospace"
+        android:gravity="center"
+        android:padding="@dimen/_4sdp"
+
+        android:text="00:00"
+        android:textColor="#FFFFFF"
+        android:textSize="@dimen/_12ssp"
         android:visibility="gone" />
 
     <com.example.myapplication.GlowingTimerView
         android:id="@+id/glowTimer"
         android:layout_width="@dimen/_70sdp"
         android:layout_height="@dimen/_26sdp"
-        android:layout_margin="16dp"
-        android:padding="@dimen/_4sdp"
         android:layout_gravity="top|center_horizontal"
+        android:layout_margin="16dp"
         android:layout_marginTop="32dp"
-        android:text="00:00:00"
-        android:visibility="gone"
-        android:textSize="@dimen/_12ssp"
-        android:gravity="center"
-
         android:fontFamily="monospace"
-      />
+        android:gravity="center"
+        android:padding="@dimen/_4sdp"
+        android:text="00:00:00"
+        android:textSize="@dimen/_12ssp"
+
+        android:visibility="gone" />
 
     <LinearLayout
         android:id="@+id/leftPanel"
         android:layout_width="wrap_content"
         android:layout_height="match_parent"
         android:layout_gravity="start|center_vertical"
-        android:orientation="vertical"
-        android:padding="8dp"
         android:layout_marginRight="@dimen/_4sdp"
-        android:gravity="center">
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="8dp">
 
         <ImageView
             android:id="@+id/resolutionIcon"
             android:layout_width="32dp"
             android:layout_height="32dp"
-            android:visibility="gone"
+            android:contentDescription="Resolution"
             android:src="@drawable/maximize_icon"
-            android:contentDescription="Resolution" />
+            android:visibility="gone" />
 
 
         <ImageView
             android:id="@+id/hdrIcon"
             android:layout_width="28dp"
             android:layout_height="28dp"
-            android:src="@drawable/flash"
-           android:padding="@dimen/_4sdp"
             android:layout_marginTop="16dp"
-            android:contentDescription="HDR" />
+            android:contentDescription="HDR"
+            android:padding="@dimen/_4sdp"
+            android:src="@drawable/flash" />
 
         <ImageView
             android:id="@+id/stabilizeIcon"
             android:layout_width="@dimen/_20sdp"
             android:layout_height="@dimen/_20sdp"
-            android:src="@drawable/resumeicons"
             android:layout_marginTop="16dp"
-            android:visibility="gone"
-            android:contentDescription="Stabilization" />
+            android:contentDescription="Stabilization"
+            android:src="@drawable/resumeicons"
+            android:visibility="gone" />
 
         <ImageView
             android:id="@+id/micIcon"
             android:layout_width="@dimen/_20sdp"
             android:layout_height="@dimen/_20sdp"
             android:layout_marginTop="16dp"
-            android:visibility="gone"
+            android:contentDescription="Mute Mic"
             android:src="@drawable/timer_icons"
-            android:contentDescription="Mute Mic" />
+            android:visibility="gone" />
     </LinearLayout>
 
     <LinearLayout
@@ -249,10 +293,10 @@
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|center_horizontal"
         android:layout_marginBottom="@dimen/_4sdp"
-        android:orientation="vertical"
+        android:background="@android:color/transparent"
         android:gravity="center"
-        android:padding="12dp"
-        android:background="@android:color/transparent">
+        android:orientation="vertical"
+        android:padding="12dp">
 
 
     </LinearLayout>

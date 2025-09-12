@@ -1,39 +1,62 @@
 package com.example.myapplication
+
+
+
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.ContentValues
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Resources
+import android.graphics.Bitmap
+import android.graphics.BlurMaskFilter
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.LinearGradient
+import android.graphics.Paint
+import android.graphics.RectF
+import android.graphics.Shader
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
+import android.hardware.SensorManager
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CaptureRequest
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.os.SystemClock
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
+import android.provider.MediaStore
 import android.util.Log
-import android.view.MotionEvent
+import android.view.OrientationEventListener
+import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.View.GONE
 import android.view.View.VISIBLE
-import android.widget.Button
 import android.widget.ImageButton
+import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import android.widget.VideoView
 import androidx.activity.ComponentActivity
-import androidx.activity.enableEdgeToEdge
 import androidx.annotation.OptIn
+import androidx.annotation.RequiresApi
 import androidx.annotation.RequiresPermission
-import androidx.appcompat.app.AppCompatActivity
+import androidx.camera.camera2.interop.Camera2CameraControl
 import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.camera2.interop.Camera2Interop
+import androidx.camera.camera2.interop.CaptureRequestOptions
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.AspectRatio
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraControl
 import androidx.camera.core.CameraInfo
 import androidx.camera.core.CameraSelector
-import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageCapture
-import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.video.FileOutputOptions
@@ -46,10 +69,23 @@ import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.PreviewView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import androidx.core.view.ViewCompat
+import androidx.core.content.FileProvider
 import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.isVisible
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.transformer.Composition
+import androidx.media3.transformer.DefaultEncoderFactory
+import androidx.media3.transformer.ExportException
+import androidx.media3.transformer.ExportResult
+import androidx.media3.transformer.Transformer
+import androidx.media3.transformer.VideoEncoderSettings
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.LinearSnapHelper
+import androidx.recyclerview.widget.RecyclerView
+import com.example.overlay.RotationLineOverlay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -58,59 +94,28 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.TimeUnit
-import android.provider.MediaStore
-import android.content.ContentValues
-import android.content.Intent
-import android.content.res.ColorStateList
-import android.content.res.Resources
-import android.graphics.Bitmap
-import android.graphics.BlurMaskFilter
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.LinearGradient
-import android.graphics.Paint
-import android.graphics.RectF
-import android.graphics.Shader
-import android.graphics.Typeface
-import android.graphics.drawable.BitmapDrawable
-import android.graphics.drawable.Drawable
-import android.os.Build
-import android.os.VibrationEffect
-import android.os.Vibrator
-import android.os.VibratorManager
-import android.view.ScaleGestureDetector
-import android.widget.ImageView
-import android.widget.LinearLayout
-import android.widget.SeekBar
-import androidx.annotation.RequiresApi
-import androidx.camera.camera2.interop.Camera2CameraControl
-import androidx.camera.camera2.interop.CaptureRequestOptions
-import androidx.camera.video.FallbackStrategy
-import androidx.camera.video.MediaStoreOutputOptions
-import androidx.core.content.FileProvider
-import androidx.core.view.WindowInsetsControllerCompat
-import androidx.core.view.setPadding
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.LinearSnapHelper
-import androidx.recyclerview.widget.RecyclerView
-import kotlin.math.abs
+
 class CameraRecordingActivity : ComponentActivity() {
     private lateinit var previewView: PreviewView
     private lateinit var cameraProvider: ProcessCameraProvider
     private lateinit var cameraSelector: CameraSelector
+
     //lateinit var timerText:TextView
     private var imageCapture: ImageCapture? = null
     private var videoCapture: VideoCapture<Recorder>? = null
     private var isPhotoMode = true
     private var recording: Recording? = null
     private var recordedVideoUri: Uri? = null
+
     //lateinit var videoButton:ImageButton
-    lateinit var zoombutton:ImageButton
+    lateinit var zoombutton: ImageButton
     private var timerJob: Job? = null
     private var startTime: Long = 0L
     private var lastVibratedFocusIndex: Int = -1
+
     //lateinit var playButton:ImageButton
-    lateinit var videobuttonRecording:ImageButton
+    lateinit var videobuttonRecording: ImageButton
+
     //lateinit var photoButton:ImageButton
     private lateinit var camera: Camera
     private lateinit var cameraControl: CameraControl
@@ -120,19 +125,26 @@ class CameraRecordingActivity : ComponentActivity() {
     private var isPaused = false
     private var pausedTime = 0L
     private var isZoomButtonSelected = false
-    lateinit var stopButton:TextView
-    lateinit var flashBtn:ImageView
+    lateinit var stopButton: TextView
+    lateinit var flashBtn: ImageView
     private var isFlashOn = false
     private var isManualFocus = false
-    lateinit var timerImage:ImageView
-    lateinit var manualfocus:TextView
-    lateinit var li_Zoom:LinearLayout
-    lateinit var tvOPIC:OpicTextView
-    lateinit var timerView:GlowingTimerView
+    lateinit var timerImage: ImageView
+    lateinit var manualfocus: TextView
+    lateinit var li_Zoom: LinearLayout
+    lateinit var angleLineView: RotationLineOverlay
+    lateinit var tvOPIC: OpicTextView
+    lateinit var timerView: GlowingTimerView
     private var isManualFocusEnabled = false
-lateinit var overlay:View
+    lateinit var overlay: View
     private lateinit var scaleGestureDetector: ScaleGestureDetector
     private var isZoomEnabled = true
+    private lateinit var sensorManager: SensorManager
+
+    private lateinit var orientationEventListener: OrientationEventListener
+
+    lateinit var li_Message: LinearLayout
+
     @SuppressLint("MissingInflatedId", "WrongViewCast")
     @RequiresApi(Build.VERSION_CODES.R)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -144,23 +156,27 @@ lateinit var overlay:View
         }
 
         setContentView(R.layout.activity_camera_recording)
+
         previewView = findViewById(R.id.previewView)
         videobuttonRecording = findViewById(R.id.videobutton)
-        stopButton=findViewById(R.id.stopButton)
-        flashBtn=findViewById(R.id.hdrIcon)
-        zoombutton=findViewById(R.id.videobuttonblack)
-        li_Zoom=findViewById(R.id.li_Zoom)
-        timerImage=findViewById(R.id.micIcon)
-        manualfocus=findViewById(R.id.stopButton)
-        tvOPIC=findViewById(R.id.tv_opic_spartial)
-         //tvOPIC = findViewById<TextView>(R.id.tv_opic_spartial)
-         timerView = findViewById<GlowingTimerView>(R.id.glowTimer)
-         overlay = findViewById<View>(R.id.zoomDragOverlay)
-       // timerView.timerText = "00:01:23"
-
+        stopButton = findViewById(R.id.stopButton)
+        flashBtn = findViewById(R.id.hdrIcon)
+        zoombutton = findViewById(R.id.videobuttonblack)
+        li_Zoom = findViewById(R.id.li_Zoom)
+        li_Message = findViewById(R.id.llRotationMessage)
+        timerImage = findViewById(R.id.micIcon)
+        manualfocus = findViewById(R.id.stopButton)
+        tvOPIC = findViewById(R.id.tv_opic_spartial)
+        //tvOPIC = findViewById<TextView>(R.id.tv_opic_spartial)
+        timerView = findViewById<GlowingTimerView>(R.id.glowTimer)
+        overlay = findViewById<View>(R.id.zoomDragOverlay)
+        // timerView.timerText = "00:01:23"
+        angleLineView = findViewById<RotationLineOverlay>(R.id.lineOverlay)
+        // pickVideo()
+        sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         pruneOldCacheVideos(2)
         val recyclerView = findViewById<RecyclerView>(R.id.zoomRecyclerView)
-       // setupZoomRecyclerView()
+        // setupZoomRecyclerView()
         if (!hasPermissions()) {
             ActivityCompat.requestPermissions(
 
@@ -171,6 +187,7 @@ lateinit var overlay:View
             )
 
         }
+
 
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         cameraProviderFuture.addListener({
@@ -183,54 +200,56 @@ lateinit var overlay:View
         }, ContextCompat.getMainExecutor(this))
 
         videobuttonRecording.setOnClickListener {
-            Log.d("checkkSxc","yess2")
-            tvOPIC.visibility= GONE
-            zoombutton.visibility= VISIBLE
-            stopButton.visibility= VISIBLE
+            Log.d("checkkSxc", "yess2")
+            tvOPIC.visibility = GONE
+            zoombutton.visibility = VISIBLE
+            stopButton.visibility = VISIBLE
 
             when {
                 !isRecording -> {
                     videobuttonRecording.setBackgroundResource(R.drawable.record_button_ring)
                     videobuttonRecording.setImageResource(R.drawable.recordicon)
-                   // videobuttonRecording.setBackgroundColor(Color.TRANSPARENT)
+                    // videobuttonRecording.setBackgroundColor(Color.TRANSPARENT)
                     videobuttonRecording.scaleType = ImageView.ScaleType.CENTER_INSIDE
                     videobuttonRecording.setPadding(32, 32, 32, 32)
                     timerView.visibility = View.VISIBLE
-                    recyclerView.visibility= GONE
-                    zoombutton.visibility= GONE
-                    manualfocus.visibility= GONE
+                    recyclerView.visibility = GONE
+                    zoombutton.visibility = GONE
+                    manualfocus.visibility = GONE
 
                     startVideoRecording()
                     isRecording = true
                     isPaused = false
                 }
+
                 isRecording && !isPaused -> {
                     // Stop recording completely
                     stopVideoRecording()
                     stopTimer()
                     pausedTime = 0L
                     timerView.timerText = "00:00:00"
-                    tvOPIC.visibility= VISIBLE
-                    zoombutton.visibility= GONE
-                    stopButton.visibility= GONE
-                    recyclerView.visibility= GONE
-                    zoombutton.visibility= VISIBLE
-                    manualfocus.visibility= VISIBLE
-                    li_Zoom.visibility= GONE
+                    tvOPIC.visibility = VISIBLE
+                    zoombutton.visibility = GONE
+                    stopButton.visibility = GONE
+                    recyclerView.visibility = GONE
+                    zoombutton.visibility = VISIBLE
+                    manualfocus.visibility = VISIBLE
+                    li_Zoom.visibility = GONE
                     videobuttonRecording.setBackgroundResource(R.drawable.circle_button_bg)
                     isRecording = false
                     isPaused = false
                 }
+
                 isRecording && isPaused -> {
                     // Start fresh recording
-                 //   playButton.setImageResource(R.drawable.pause)
+                    //   playButton.setImageResource(R.drawable.pause)
                     timerView.timerText = "00:00:00"
                     pausedTime = 0L
                     startVideoRecording()
-                    tvOPIC.visibility= GONE
-                    li_Zoom.visibility= GONE
-                    zoombutton.visibility= VISIBLE
-                    stopButton.visibility= VISIBLE
+                    tvOPIC.visibility = GONE
+                    li_Zoom.visibility = GONE
+                    zoombutton.visibility = VISIBLE
+                    stopButton.visibility = VISIBLE
                     isRecording = true
                     isPaused = false
                 }
@@ -254,13 +273,13 @@ lateinit var overlay:View
 
                 manualfocus.setBackgroundResource(R.drawable.record_button_ring1)
                 manualfocus.setTextColor(Color.WHITE)
-                tvOPIC.visibility= GONE
-                overlay.visibility= VISIBLE
-                overlay.isEnabled=true
-                li_Zoom.visibility= VISIBLE
+                tvOPIC.visibility = GONE
+                overlay.visibility = VISIBLE
+                overlay.isEnabled = true
+                li_Zoom.visibility = VISIBLE
                 li_Zoom.isEnabled = false
                 li_Zoom.isClickable = false
-                recyclerView.visibility= GONE
+                recyclerView.visibility = GONE
 
                 // Optional: cameraControl.setZoomRatio(2.0f)
             } else {
@@ -268,12 +287,12 @@ lateinit var overlay:View
                 zoombutton.setBackgroundResource(R.drawable.record_button_ring1)
                 zoombutton.setImageResource(R.drawable.zoomwhite)
 
-                tvOPIC.visibility= GONE
-                li_Zoom.visibility= GONE
+                tvOPIC.visibility = GONE
+                li_Zoom.visibility = GONE
                 li_Zoom.isEnabled = false
                 li_Zoom.isClickable = false
-                overlay.visibility= GONE
-                overlay.isEnabled=false
+                overlay.visibility = GONE
+                overlay.isEnabled = false
 
                 // Optional: cameraControl.setZoomRatio(1.0f)
             }
@@ -305,7 +324,7 @@ lateinit var overlay:View
                     flashBtn.setImageResource(R.drawable.flash3)
 
                     // flashBtn.setImageResource(R.drawable.flash) // your "flash off" icon
-                   // flashBtn.imageTintList = ColorStateList.valueOf(Color.WHITE)
+                    // flashBtn.imageTintList = ColorStateList.valueOf(Color.WHITE)
                 }
             }
         }
@@ -318,10 +337,10 @@ lateinit var overlay:View
                 // Hide zoom UI & disable zoom logic
                 li_Zoom.visibility = View.GONE
                 li_Zoom.isEnabled = false
-                overlay.visibility= GONE
-                overlay.isEnabled=false
+                overlay.visibility = GONE
+                overlay.isEnabled = false
                 isZoomEnabled = false  // ✅ Disable all zoom-related logic
-                tvOPIC.visibility= GONE
+                tvOPIC.visibility = GONE
                 isManualFocus = true
 
                 manualfocus.setBackgroundResource(R.drawable.manulafocus_bg)
@@ -336,7 +355,7 @@ lateinit var overlay:View
                 isZoomEnabled = false  // Still off unless you re-enable above
 
                 isManualFocus = false
-                tvOPIC.visibility= GONE
+                tvOPIC.visibility = GONE
                 manualfocus.setBackgroundResource(R.drawable.record_button_ring1)
                 manualfocus.setTextColor(Color.WHITE)
             }
@@ -354,8 +373,50 @@ lateinit var overlay:View
 
         setupZoomButtons()
         setupZoomDrag()
-
+        checkOrientation()
     }
+
+    private fun checkOrientation() {
+        orientationEventListener = object : OrientationEventListener(this) {
+            override fun onOrientationChanged(orientation: Int) {
+                if (orientation == ORIENTATION_UNKNOWN) return
+
+                // 0° and 180° → Portrait
+                if ((orientation in 350..360) || (orientation in 0..10) || (orientation in 170..190)) {
+                    if (!isRecording) {
+                        angleLineView.visibility = View.GONE
+                        li_Message.visibility = View.VISIBLE
+                    }
+                    // Toast.makeText(baseContext, "Portrait", Toast.LENGTH_SHORT).show()
+                }
+                // 90° and 270° → Landscape
+                else if ((orientation in 80..100) || (orientation in 260..280)) {
+                    if (!isRecording) {
+                          angleLineView.visibility = View.VISIBLE
+                        li_Message.visibility = View.GONE
+                    }
+                    //Toast.makeText(baseContext, "Landscape", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        // Keep it horizontal in every rotation:
+        // angleLineView.angle = 0f
+        if (orientationEventListener.canDetectOrientation()) {
+            orientationEventListener.enable()
+        }
+    }
+
+//    override fun onResume() {
+//        super.onResume()
+//        levelCtl = (levelCtl ?: ThreeLinesLevelController(threeLevelLinesView)).also { it.start() }
+//    }
+//
+//    override fun onPause() {
+//        levelCtl?.stop()
+//        super.onPause()
+//
+//    }
+
 
     fun createGradientRingDrawablebutton(width: Int, height: Int): Drawable {
         val strokeWidth = 1f
@@ -416,11 +477,10 @@ lateinit var overlay:View
     }
 
 
-
-
     private fun hasPermissions(): Boolean {
         val cameraPermission = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
-        val audioPermission = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+        val audioPermission =
+            ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
         return cameraPermission == PackageManager.PERMISSION_GRANTED &&
                 audioPermission == PackageManager.PERMISSION_GRANTED
 
@@ -478,6 +538,8 @@ lateinit var overlay:View
 
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
     private fun startVideoRecording() {
+        isRecording = true
+        angleLineView.visibility = View.GONE // hide line when recording starts
         val videoCapture = this.videoCapture ?: return
 
         val name = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", Locale.US)
@@ -498,6 +560,7 @@ lateinit var overlay:View
                     is VideoRecordEvent.Start -> {
                         startTimer()
                     }
+
                     is VideoRecordEvent.Finalize -> {
                         stopTimer()
                         recording = null
@@ -507,7 +570,21 @@ lateinit var overlay:View
                             recordedVideoUri = cacheUri
                             // Share straight from cache (no MediaStore copy)
 //                            shareVideoToWhatsAppFromCache(cacheUri)
-                            Toast.makeText(this, "Video saved to cache: "+recordedVideoUri, Toast.LENGTH_SHORT).show()
+                            Toast.makeText(
+                                this,
+                                "Video saved to cache: " + recordedVideoUri,
+                                Toast.LENGTH_SHORT
+                            ).show()
+                            // ✅ Call the compressor function
+                            Log.d("VideoCompressor", "Orignal video saved at: $recordedVideoUri")
+                            Log.d(
+                                "VideoCompressor", "Orignal video size: ${
+                                    getFileSize(
+                                        recordedVideoUri!!
+                                    )
+                                }"
+                            )
+                            compressVideo(recordedVideoUri!!)
                         } else {
                             // Optionally delete a partial/corrupt file
                             if (outFile.exists()) outFile.delete()
@@ -515,6 +592,59 @@ lateinit var overlay:View
                     }
                 }
             }
+    }
+
+    fun pickVideo() {
+
+        // Example: pick a video from gallery
+        val intent = Intent(Intent.ACTION_PICK).apply {
+            type = "video/*"
+        }
+        startActivityForResult(intent, 1)
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+
+        if (requestCode == 1 && resultCode == RESULT_OK) {
+            val inputUri = data?.data ?: return
+            Log.d("VideoCompressor", "Orignal video saved at: $inputUri")
+            Log.d(
+                "VideoCompressor", "Orignal video size: ${
+                    getFileSize(
+                        inputUri!!
+                    )
+                }"
+            )
+            compressVideo(inputUri!!)
+
+
+        }
+    }
+
+    private fun compressVideo(uri: Uri) {
+        compressVideoToCacheUri(
+            context = this,
+            inputUri = uri,
+            targetBitrate = 4_000_000, // 4 Mbps ~ good for 1080p
+            preferHevc = true
+        ) { outputUri ->
+            if (outputUri != null) {
+                // Success: do something with the Uri
+                Log.d("VideoCompressor", "Compressed video saved at: $outputUri")
+                Log.d("VideoCompressor", "Compressed video size: ${getFileSize(outputUri)}")
+
+
+//                                    // Example: play it with a VideoView
+                val videoView = VideoView(this)
+                videoView.setVideoURI(outputUri)
+                videoView.start()
+                setContentView(videoView)
+            } else {
+                Log.e("VideoCompressor", "Compression failed")
+            }
+        }
     }
 
     private fun getCacheFileProviderUri(file: File): Uri {
@@ -525,7 +655,11 @@ lateinit var overlay:View
         super.onStop()
         if (isRecording) {
             stopVideoRecording()
-            Toast.makeText(this, "Recording stopped due to app going to background", Toast.LENGTH_SHORT).show()
+            Toast.makeText(
+                this,
+                "Recording stopped due to app going to background",
+                Toast.LENGTH_SHORT
+            ).show()
             isRecording = false
             isPaused = false
             //playButton.setImageResource(R.drawable.playbutton)
@@ -533,10 +667,29 @@ lateinit var overlay:View
         }
     }
 
+    fun getFileSize(uri: Uri): String {
+        return try {
+            val fileDescriptor = contentResolver.openFileDescriptor(uri, "r") ?: return "0 B"
+            val size = fileDescriptor.statSize
+            fileDescriptor.close()
+
+            when {
+                size < 1024 -> "$size B"
+                size < 1024 * 1024 -> String.format("%.2f KB", size / 1024f)
+                else -> String.format("%.2f MB", size / (1024f * 1024f))
+            }
+        } catch (e: Exception) {
+            "Unknown"
+        }
+    }
+
     private fun stopVideoRecording() {
+        isRecording = false
+        angleLineView.visibility = View.VISIBLE
         recording?.stop()
         recording = null
     }
+
     private fun startTimer() {
         startTime = SystemClock.elapsedRealtime() - pausedTime
         timerJob = lifecycleScope.launch {
@@ -552,9 +705,11 @@ lateinit var overlay:View
         }
 
     }
+
     private fun stopTimer() {
         timerJob?.cancel()
     }
+
     private fun resumeTimer() {
         startTimer()
     }
@@ -585,19 +740,20 @@ lateinit var overlay:View
 
     private fun setupZoomButtons() {
         val zoomButtons = listOf(
-         //   Pair(findViewById<TextView>(R.id.zoom_5x), 5.0f),
+            //   Pair(findViewById<TextView>(R.id.zoom_5x), 5.0f),
             Pair(findViewById<TextView>(R.id.zoom_4x), 4.0f),
             Pair(findViewById<TextView>(R.id.zoom_3x), 3.0f),
             Pair(findViewById<TextView>(R.id.zoom_2x), 2.0f),
-            Pair(findViewById<TextView>(R.id.zoom_13x), 1.8f),
-            Pair(findViewById<TextView>(R.id.zoom_10x), 1.5f),
-            Pair(findViewById<TextView>(R.id.zoom_08x), 1.2f),
-            Pair(findViewById<TextView>(R.id.zoom_05x), 1.0f)
-            
+            Pair(findViewById<TextView>(R.id.zoom_18x), 1.8f),
+            Pair(findViewById<TextView>(R.id.zoom_15x), 1.5f),
+            Pair(findViewById<TextView>(R.id.zoom_12x), 1.2f),
+            Pair(findViewById<TextView>(R.id.zoom_1x), 1.0f)
+
         )
 
         for ((textView, zoomValue) in zoomButtons) {
             textView.setOnClickListener {
+                Log.d("CameraX", "zoomValue $zoomValue")
                 cameraControl.setZoomRatio(zoomValue)
                 highlightSelectedZoom(textView, zoomButtons.map { it.first })
 
@@ -613,7 +769,9 @@ lateinit var overlay:View
 
         }
     }
+
     private lateinit var focusAdapter: ZoomAdapter
+
     @OptIn(ExperimentalCamera2Interop::class)
     fun setupManualFocusRecyclerView() {
         val recyclerView = findViewById<RecyclerView>(R.id.zoomRecyclerView)
@@ -647,14 +805,17 @@ lateinit var overlay:View
             Log.d("FocusSet", "Mapped: $mapped → FocusDistance: $focusDistance")
 
             val options = CaptureRequestOptions.Builder()
-                .setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
+                .setCaptureRequestOption(
+                    CaptureRequest.CONTROL_AF_MODE,
+                    CaptureRequest.CONTROL_AF_MODE_OFF
+                )
                 .setCaptureRequestOption(CaptureRequest.LENS_FOCUS_DISTANCE, focusDistance)
                 .build()
 
             camera2Control.setCaptureRequestOptions(options)
 
             // Animate focus ring
-           // showFocusRing(focusRing)
+            // showFocusRing(focusRing)
         }
 
         recyclerView.adapter = focusAdapter
@@ -678,8 +839,14 @@ lateinit var overlay:View
                         val focusDistance = value * minFocusDistance
 
                         val options = CaptureRequestOptions.Builder()
-                            .setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
-                            .setCaptureRequestOption(CaptureRequest.LENS_FOCUS_DISTANCE, focusDistance)
+                            .setCaptureRequestOption(
+                                CaptureRequest.CONTROL_AF_MODE,
+                                CaptureRequest.CONTROL_AF_MODE_OFF
+                            )
+                            .setCaptureRequestOption(
+                                CaptureRequest.LENS_FOCUS_DISTANCE,
+                                focusDistance
+                            )
                             .build()
 
                         camera2Control.setCaptureRequestOptions(options)
@@ -692,7 +859,7 @@ lateinit var overlay:View
                             lastVibratedFocusIndex = pos
                         }
 
-                       // showFocusRing(focusRing)
+                        // showFocusRing(focusRing)
                     }
                 }
             }
@@ -736,7 +903,7 @@ lateinit var overlay:View
         selectedView.post {
             val drawable = createGradientRingDrawable(selectedView.width, selectedView.height)
             selectedView.background = drawable
-        val shader = LinearGradient(
+            val shader = LinearGradient(
                 0f, 0f, selectedView.width.toFloat(), 0f,
                 Color.parseColor("#1CF3FF"),
                 Color.parseColor("#FD2F55"),
@@ -781,40 +948,90 @@ lateinit var overlay:View
 
     private fun setupZoomDrag() {
 
+        var lastZoom: Float? = null
         val zoomViews = listOf(
             //Pair(findViewById<TextView>(R.id.zoom_5x), 5.0f),
             Pair(findViewById<TextView>(R.id.zoom_4x), 4.0f),
             Pair(findViewById<TextView>(R.id.zoom_3x), 3.0f),
             Pair(findViewById<TextView>(R.id.zoom_2x), 2.0f),
-            Pair(findViewById<TextView>(R.id.zoom_13x), 1.2f),
-            Pair(findViewById<TextView>(R.id.zoom_10x), 1.0f),
-            Pair(findViewById<TextView>(R.id.zoom_08x), 0.8f),
-            Pair(findViewById<TextView>(R.id.zoom_05x), 0.5f)
+            Pair(findViewById<TextView>(R.id.zoom_18x), 1.8f),
+            Pair(findViewById<TextView>(R.id.zoom_15x), 1.5f),
+            Pair(findViewById<TextView>(R.id.zoom_12x), 1.2f),
+            Pair(findViewById<TextView>(R.id.zoom_1x), 1.0f)
         )
-
-        var lastZoom: Float? = null
-
-        overlay.setOnTouchListener { _, event ->
-            if (event.action == MotionEvent.ACTION_MOVE || event.action == MotionEvent.ACTION_DOWN) {
-                val screenY = event.rawY
-                val touchedView = zoomViews.minByOrNull { (view, _) ->
-                    val location = IntArray(2)
-                    view.getLocationOnScreen(location)
-                    val centerY = location[1] + view.height / 2
-                    kotlin.math.abs(screenY - centerY)
-                }
-
-                touchedView?.let { (view, zoomValue) ->
-                    if (lastZoom != zoomValue) {
-                        cameraControl.setZoomRatio(zoomValue)
-                        highlightSelectedZoom(view, zoomViews.map { it.first })
-                        lastZoom = zoomValue
-                        vibrateOnce()
-                    }
-                }
-            }
-            true
+        findViewById<TextView>(R.id.zoom_4x).setOnClickListener {
+            var zoomValue = 4.0f
+            cameraControl.setZoomRatio(zoomValue)
+            highlightSelectedZoom(findViewById<TextView>(R.id.zoom_4x), zoomViews.map { it.first })
+            lastZoom = zoomValue
+            vibrateOnce()
         }
+        findViewById<TextView>(R.id.zoom_3x).setOnClickListener {
+            var zoomValue = 3.0f
+            cameraControl.setZoomRatio(zoomValue)
+            highlightSelectedZoom(findViewById<TextView>(R.id.zoom_3x), zoomViews.map { it.first })
+            lastZoom = zoomValue
+            vibrateOnce()
+        }
+        findViewById<TextView>(R.id.zoom_2x).setOnClickListener {
+            var zoomValue = 2.0f
+            cameraControl.setZoomRatio(zoomValue)
+            highlightSelectedZoom(findViewById<TextView>(R.id.zoom_2x), zoomViews.map { it.first })
+            lastZoom = zoomValue
+            vibrateOnce()
+        }
+
+        findViewById<TextView>(R.id.zoom_18x).setOnClickListener {
+            var zoomValue = 1.8f
+            cameraControl.setZoomRatio(zoomValue)
+            highlightSelectedZoom(findViewById<TextView>(R.id.zoom_18x), zoomViews.map { it.first })
+            lastZoom = zoomValue
+            vibrateOnce()
+        }
+        findViewById<TextView>(R.id.zoom_15x).setOnClickListener {
+            var zoomValue = 1.5f
+            cameraControl.setZoomRatio(zoomValue)
+            highlightSelectedZoom(findViewById<TextView>(R.id.zoom_15x), zoomViews.map { it.first })
+            lastZoom = zoomValue
+            vibrateOnce()
+        }
+        findViewById<TextView>(R.id.zoom_12x).setOnClickListener {
+            var zoomValue = 1.2f
+            cameraControl.setZoomRatio(zoomValue)
+            highlightSelectedZoom(findViewById<TextView>(R.id.zoom_12x), zoomViews.map { it.first })
+            lastZoom = zoomValue
+            vibrateOnce()
+        }
+        findViewById<TextView>(R.id.zoom_1x).setOnClickListener {
+            var zoomValue = 1.0f
+            cameraControl.setZoomRatio(zoomValue)
+            highlightSelectedZoom(findViewById<TextView>(R.id.zoom_1x), zoomViews.map { it.first })
+            lastZoom = zoomValue
+            vibrateOnce()
+        }
+
+
+//        overlay.setOnTouchListener { _, event ->
+//            if (event.action == MotionEvent.ACTION_MOVE || event.action == MotionEvent.ACTION_DOWN) {
+//                val screenY = event.rawY
+//                val touchedView = zoomViews.minByOrNull { (view, _) ->
+//                    val location = IntArray(2)
+//                    view.getLocationOnScreen(location)
+//                    val centerY = location[1] + view.height / 2
+//                    kotlin.math.abs(screenY - centerY)
+//                }
+//
+//                touchedView?.let { (view, zoomValue) ->
+//                    if (lastZoom != zoomValue) {
+//                        cameraControl.setZoomRatio(zoomValue)
+//                        highlightSelectedZoom(view, zoomViews.map { it.first })
+//                        lastZoom = zoomValue
+//                        vibrateOnce()
+//                    }
+//                }
+//            }
+//            true
+//        }
     }
 
     @SuppressLint("ServiceCast")
@@ -874,5 +1091,78 @@ lateinit var overlay:View
         dir.listFiles { f -> f.isFile && f.extension.equals("mp4", true) }?.forEach { f ->
             if (f.lastModified() < cutoff) f.delete()
         }
+    }
+
+    fun getPath(context: Context, uri: Uri): String? {
+        return when (uri.scheme) {
+            "file" -> uri.path
+            "content" -> {
+                val cursor = context.contentResolver.query(uri, null, null, null, null)
+                cursor?.use {
+                    val index = it.getColumnIndexOrThrow("_data")
+                    if (it.moveToFirst()) {
+                        return it.getString(index)
+                    }
+                }
+                null
+            }
+
+            else -> null
+        }
+    }
+
+
+    @OptIn(UnstableApi::class)
+    fun compressVideoToCacheUri(
+        context: Context,
+        inputUri: Uri,
+        targetBitrate: Int = 4_000_000, // ~4 Mbps default
+        preferHevc: Boolean = true,
+        onComplete: (Uri?) -> Unit
+    ) {
+        val outputFile = File(context.cacheDir, "compressed_${System.currentTimeMillis()}.mp4")
+        val outputPath = outputFile.absolutePath
+        val mediaItem = MediaItem.fromUri(inputUri)
+
+        // Request bitrate via VideoEncoderSettings -> DefaultEncoderFactory
+        val videoSettings = VideoEncoderSettings.Builder()
+            .setBitrate(targetBitrate)              // <— bitrate goes here (not on Transformer)
+            .build()
+
+        val encoderFactory = DefaultEncoderFactory.Builder(context)
+            .setRequestedVideoEncoderSettings(videoSettings)
+            .setEnableFallback(true)                // fallback to supported profiles/levels
+            .build()
+
+        fun startWith(mime: String) {
+            val transformer = Transformer.Builder(context)
+                .setEncoderFactory(encoderFactory)
+                .setVideoMimeType(mime)             // prefer HEVC; fallback to AVC if it fails
+                .build()
+
+            transformer.addListener(object : Transformer.Listener {
+                override fun onCompleted(composition: Composition, exportResult: ExportResult) {
+                    onComplete(Uri.fromFile(outputFile))
+                }
+
+                override fun onError(
+                    composition: Composition,
+                    exportResult: ExportResult,
+                    exception: ExportException
+                ) {
+                    if (mime == MimeTypes.VIDEO_H265) {
+                        startWith(MimeTypes.VIDEO_H264) // retry with AVC
+                    } else {
+                        outputFile.delete()
+                        onComplete(null)
+                    }
+                }
+            })
+
+            // Start: MediaItem + output path (1.5.1 signature)
+            transformer.start(mediaItem, outputPath)
+        }
+
+        startWith(if (preferHevc) MimeTypes.VIDEO_H265 else MimeTypes.VIDEO_H264)
     }
 }
