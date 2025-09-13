@@ -3,6 +3,7 @@ package com.example.myapplication
 import android.Manifest
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.app.AlertDialog
 import android.content.ContentValues
 import android.content.Context
@@ -121,7 +122,7 @@ class CameraRecordingActivity : ComponentActivity() {
     private var isFlashOn = false
     private var isManualFocus = false
     lateinit var timerImage: ImageView
-    lateinit var manualfocus: TextView
+    //lateinit var manualfocus: TextView
     lateinit var tvOPIC: OpicTextView
     lateinit var timerView: GlowingTimerView
     private var isZoomEnabled = false
@@ -159,7 +160,7 @@ class CameraRecordingActivity : ComponentActivity() {
         flashBtn = findViewById(R.id.hdrIcon)
         zoombutton = findViewById(R.id.videobuttonblack)
         timerImage = findViewById(R.id.micIcon)
-        manualfocus = findViewById(R.id.stopButton)
+       // manualfocus = findViewById(R.id.stopButton)
         li_Message = findViewById(R.id.llRotationMessage)
         tvOPIC = findViewById(R.id.tv_opic_spartial)
         timerView = findViewById<GlowingTimerView>(R.id.glowTimer)
@@ -284,8 +285,8 @@ class CameraRecordingActivity : ComponentActivity() {
         }, ContextCompat.getMainExecutor(this))
 
 
-        manualfocus.setBackgroundResource(R.drawable.record_button_ring1)
-        manualfocus.setTextColor(Color.WHITE)
+//        manualfocus.setBackgroundResource(R.drawable.record_button_ring1)
+//        manualfocus.setTextColor(Color.WHITE)
         zoombutton.setBackgroundResource(R.drawable.record_button_ring1)
         zoombutton.setImageResource(R.drawable.zoomwhite)
         zoombutton.scaleType = ImageView.ScaleType.CENTER_INSIDE
@@ -337,7 +338,7 @@ class CameraRecordingActivity : ComponentActivity() {
                     stopButton.visibility = GONE
                     focusScaleView.visibility = GONE
                     zoombutton.visibility = VISIBLE
-                    manualfocus.visibility = VISIBLE
+                   // manualfocus.visibility = VISIBLE
                     videobuttonRecording.setBackgroundResource(R.drawable.circle_button_bg)
                     isRecording = false
                     isPaused = false
@@ -383,10 +384,10 @@ class CameraRecordingActivity : ComponentActivity() {
                 zoombutton.setBackgroundResource(R.drawable.ring_white_color)
                 zoombutton.setImageResource(R.drawable.zoom_black)
 
-                manualfocus.setBackgroundResource(R.drawable.record_button_ring1)
-                manualfocus.setTextColor(Color.WHITE)
-
-                isManualFocus = false
+//                manualfocus.setBackgroundResource(R.drawable.record_button_ring1)
+//                manualfocus.setTextColor(Color.WHITE)
+//
+//                isManualFocus = false
 
 //                enableAutoFocus()
 //                manualfocus.text = "AF"
@@ -440,72 +441,72 @@ class CameraRecordingActivity : ComponentActivity() {
             }
         }
 
-        manualfocus.setOnClickListener {
-            if (!isManualFocus) {
-
-                // Enable manual focus UI
-                zoomControlLayout.visibility = GONE
-                focusScaleView.visibility = VISIBLE
-                zoomRulerView.visibility = GONE
-
-                hideZoomSelectorView()
-                // Hide zoom UI & disable zoom logic
-                isZoomEnabled = false
-                tvOPIC.visibility = GONE
-                isManualFocus = true
-                disableAutoFocus()
-
-                // store auto focus camera distance
-
-                // If AF gave us a last distance, use it as starting point for manual
-                if (lastAutoFocusDistance > 0f && minFocusDistance > 0f) {
-                    val camera2Control = Camera2CameraControl.from(camera!!.cameraControl)
-                    val options = CaptureRequestOptions.Builder()
-                        .setCaptureRequestOption(
-                            CaptureRequest.CONTROL_AF_MODE,
-                            CaptureRequest.CONTROL_AF_MODE_OFF
-                        )
-                        .setCaptureRequestOption(
-                            CaptureRequest.LENS_FOCUS_DISTANCE,
-                            lastAutoFocusDistance
-                        )
-                        .build()
-                    camera2Control.setCaptureRequestOptions(options)
-
-                    // Map to slider (normalized 0..1 for your FocusRulerView)
-                    val normalized = 1f - (lastAutoFocusDistance / minFocusDistance)
-                    focusScaleView.focusValue = normalized
-
-                    Log.d(
-                        "AF->Manual",
-                        "Starting MF at AF=$lastAutoFocusDistance (slider=$normalized)"
-                    )
-                }
-
-                isZoomButtonSelected = false
-                manualfocus.setBackgroundResource(R.drawable.manulafocus_bg)
-                manualfocus.setTextColor(Color.BLACK)
-                manualfocus.text = "MF"
-                zoombutton.setBackgroundResource(R.drawable.record_button_ring1)
-                zoombutton.setImageResource(R.drawable.zoomwhite)
-                zoombutton.imageTintList = null  // Optional
-
-            } else {
-                enableAutoFocus()
-//                zoomControlLayout.visibility = VISIBLE
-                focusScaleView.visibility = GONE
-//                zoomRulerView.visibility = VISIBLE
-                manualfocus.text = "AF"
-
-//                isZoomEnabled = true  // Still off unless you re-enable above
-//                isZoomButtonSelected = true
-                isManualFocus = false
-                tvOPIC.visibility = GONE
-                manualfocus.setBackgroundResource(R.drawable.record_button_ring1)
-                manualfocus.setTextColor(Color.WHITE)
-//                selectDefaultZoom()
-            }
-        }
+//        manualfocus.setOnClickListener {
+//            if (!isManualFocus) {
+//
+//                // Enable manual focus UI
+//                zoomControlLayout.visibility = GONE
+//                focusScaleView.visibility = VISIBLE
+//                zoomRulerView.visibility = GONE
+//
+//                hideZoomSelectorView()
+//                // Hide zoom UI & disable zoom logic
+//                isZoomEnabled = false
+//                tvOPIC.visibility = GONE
+//                isManualFocus = true
+//                disableAutoFocus()
+//
+//                // store auto focus camera distance
+//
+//                // If AF gave us a last distance, use it as starting point for manual
+//                if (lastAutoFocusDistance > 0f && minFocusDistance > 0f) {
+//                    val camera2Control = Camera2CameraControl.from(camera!!.cameraControl)
+//                    val options = CaptureRequestOptions.Builder()
+//                        .setCaptureRequestOption(
+//                            CaptureRequest.CONTROL_AF_MODE,
+//                            CaptureRequest.CONTROL_AF_MODE_OFF
+//                        )
+//                        .setCaptureRequestOption(
+//                            CaptureRequest.LENS_FOCUS_DISTANCE,
+//                            lastAutoFocusDistance
+//                        )
+//                        .build()
+//                    camera2Control.setCaptureRequestOptions(options)
+//
+//                    // Map to slider (normalized 0..1 for your FocusRulerView)
+//                    val normalized = 1f - (lastAutoFocusDistance / minFocusDistance)
+//                    focusScaleView.focusValue = normalized
+//
+//                    Log.d(
+//                        "AF->Manual",
+//                        "Starting MF at AF=$lastAutoFocusDistance (slider=$normalized)"
+//                    )
+//                }
+//
+//                isZoomButtonSelected = false
+//                manualfocus.setBackgroundResource(R.drawable.manulafocus_bg)
+//                manualfocus.setTextColor(Color.BLACK)
+//                manualfocus.text = "MF"
+//                zoombutton.setBackgroundResource(R.drawable.record_button_ring1)
+//                zoombutton.setImageResource(R.drawable.zoomwhite)
+//                zoombutton.imageTintList = null  // Optional
+//
+//            } else {
+//                enableAutoFocus()
+////                zoomControlLayout.visibility = VISIBLE
+//                focusScaleView.visibility = GONE
+////                zoomRulerView.visibility = VISIBLE
+//                manualfocus.text = "AF"
+//
+////                isZoomEnabled = true  // Still off unless you re-enable above
+////                isZoomButtonSelected = true
+//                isManualFocus = false
+//                tvOPIC.visibility = GONE
+//                manualfocus.setBackgroundResource(R.drawable.record_button_ring1)
+//                manualfocus.setTextColor(Color.WHITE)
+////                selectDefaultZoom()
+//            }
+//        }
         checkOrientation()
     }
 
@@ -580,8 +581,8 @@ class CameraRecordingActivity : ComponentActivity() {
         zoombutton.setBackgroundResource(R.drawable.ring_white_color)
         zoombutton.setImageResource(R.drawable.zoom_black)
 
-        manualfocus.setBackgroundResource(R.drawable.record_button_ring1)
-        manualfocus.setTextColor(Color.WHITE)
+//        manualfocus.setBackgroundResource(R.drawable.record_button_ring1)
+//        manualfocus.setTextColor(Color.WHITE)
         zoomRulerView.visibility = GONE
 
     }
@@ -789,7 +790,7 @@ class CameraRecordingActivity : ComponentActivity() {
                             Toast.makeText(this, "Video recording failed", Toast.LENGTH_SHORT)
                                 .show()
                         }
-                        finish()
+                       // finish()
                     }
                 }
             }
@@ -1116,15 +1117,20 @@ class CameraRecordingActivity : ComponentActivity() {
             .build()
 
         // CHANGE: ensure dialog work happens on Main
-        val main = androidx.core.os.HandlerCompat.createAsync(Looper.getMainLooper())
+        val act = context as? Activity
+        if (act != null && !act.isFinishing && !act.isDestroyed) {
+            progressDialog.show()
+        }
         var finished = false
-
-        progressDialog.show()
         fun finishWith(result: Uri?) {
             if (finished) return
             finished = true
             // Dismiss dialog on main
-            main.post { progressDialog?.dismiss() }
+            android.os.Handler(Looper.getMainLooper()).post {
+                try {
+                    progressDialog.dismiss()
+                } catch (_: Throwable) {}
+            }
             if (cont.isActive) cont.resume(result, onCancellation = null)
         }
 
@@ -1150,7 +1156,12 @@ class CameraRecordingActivity : ComponentActivity() {
                     composition: Composition,
                     exportResult: ExportResult
                 ) {
-                    progressDialog.dismiss()
+                    // Dismiss dialog on main
+                    android.os.Handler(Looper.getMainLooper()).post {
+                        try {
+                            progressDialog.dismiss()
+                        } catch (_: Throwable) {}
+                    }
                     finishWith(Uri.fromFile(outputFile))
                 }
 
