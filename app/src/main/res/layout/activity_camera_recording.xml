@@ -1,98 +1,255 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#000000">
-
-
-
+    android:background="#000000"
+    android:orientation="vertical">
     <!-- Camera Preview -->
     <androidx.camera.view.PreviewView
         android:id="@+id/previewView"
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="match_parent"
+        android:focusable="true"
+        android:focusableInTouchMode="true"
+        app:scaleType="fillCenter" />
+    <LinearLayout
+        android:id="@+id/llRotationMessage"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#80000000"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:visibility="gone">
 
-    <!-- Control Buttons Container -->
+        <ImageView
+            android:id="@+id/rotateIcon"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/refresh_2" />
+
+        <TextView
+            android:id="@+id/rotateMessage"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingTop="8dp"
+            android:text="Rotate your phone to Landscape"
+            android:textColor="@android:color/white"
+            android:textSize="16sp" />
+    </LinearLayout>
+
+    <com.example.overlay.RotationLineOverlay
+        android:id="@+id/lineOverlay"
+        android:layout_width="200dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:clickable="false"
+        android:focusable="false"
+        />
+
+    <View
+        android:id="@+id/focusRing"
+        android:layout_width="80dp"
+        android:layout_height="80dp"
+        android:layout_gravity="top|start"
+        android:background="@drawable/camera"
+        android:backgroundTint="@color/white"
+        android:visibility="gone" />
+
+    <!-- Timer Text (top center) -->
+
+    <FrameLayout
+        android:id="@+id/rootLayout"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <!-- Button vertical layout (camera controls) -->
+        <LinearLayout
+            android:id="@+id/buttonLayout"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="end|center_vertical"
+            android:layout_marginEnd="@dimen/_50sdp"
+            android:background="@android:color/transparent"
+            android:gravity="center_vertical"
+            android:orientation="vertical"
+            android:padding="@dimen/_10sdp">
+
+            <TextView
+                android:id="@+id/stopButton"
+                android:layout_width="@dimen/_30sdp"
+                android:layout_height="@dimen/_30sdp"
+                android:layout_marginStart="@dimen/_10sdp"
+                android:layout_marginBottom="@dimen/_10sdp"
+                android:background="@android:color/transparent"
+                android:gravity="center"
+                android:scaleType="centerInside"
+                android:text="AF"
+                android:textColor="@color/black"
+                android:textSize="@dimen/_10ssp"
+                android:textStyle="bold" />
 
 
-    <!-- Left Side Panel -->
+            <ImageButton
+                android:id="@+id/videobutton"
+                android:layout_width="@dimen/_62sdp"
+                android:layout_height="@dimen/_62sdp"
+                android:background="@drawable/circle_button_bg"
+                android:padding="@dimen/_14sdp"
+                android:scaleType="centerInside" />
+
+            <ImageView
+                android:id="@+id/videobuttonblack"
+                android:layout_width="@dimen/_30sdp"
+                android:layout_height="@dimen/_30sdp"
+                android:layout_marginStart="@dimen/_10sdp"
+                android:layout_marginTop="@dimen/_10sdp"
+                android:background="@drawable/ring_circle_black1"
+                android:src="@drawable/searchsvg" />
+        </LinearLayout>
+
+        <com.example.myapplication.OpicTextView
+            android:id="@+id/tv_opic_spartial"
+            android:layout_width="@dimen/_80sdp"
+            android:layout_height="@dimen/_24sdp"
+            android:layout_gravity="end|center_vertical"
+            android:layout_marginEnd="@dimen/_90sdp"
+            android:padding="@dimen/_2sdp"
+            android:rotation="270"
+            android:textSize="@dimen/_11ssp"
+            android:textStyle="bold" />
+
+        <com.example.myapplication.FocusRulerView
+            android:id="@+id/focusScaleView"
+            android:layout_width="100dp"
+            android:layout_height="match_parent"
+            android:layout_gravity="end|center_vertical"
+            android:layout_marginEnd="@dimen/_130sdp"
+            android:visibility="gone"
+            app:zr_maxZoom="1.00"
+            app:zr_minZoom="0.00"
+            app:zr_pointerRadius="4dp"
+            app:zr_step="0.02"
+            app:zr_textSize="10sp"
+            app:zr_tickSpacing="9dp" />
+
+
+        <com.example.myapplication.ZoomRulerView
+            android:id="@+id/zoomRulerView"
+            android:layout_width="100dp"
+            android:layout_height="match_parent"
+            android:layout_gravity="end|center_vertical"
+            android:layout_marginEnd="@dimen/_130sdp"
+            app:zr_maxZoom="5.0"
+            app:zr_minZoom="1.0"
+            app:zr_pointerRadius="4dp"
+            app:zr_step="0.1"
+            app:zr_textSize="10sp"
+            app:zr_tickSpacing="9dp" />
+
+        <!-- Zoom RecyclerView anchored to left of recording button -->
+
+        <LinearLayout
+            android:id="@+id/zoomControlBg"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="end|center_vertical"
+            android:layout_marginEnd="@dimen/_140sdp"
+            android:background="@drawable/bg_zoom_container_control"
+            android:orientation="vertical"
+            android:paddingTop="@dimen/_1sdp"
+            android:paddingBottom="@dimen/_1sdp"
+            android:visibility="visible">
+
+            <com.example.myapplication.SwipeDetectRecyclerView
+                android:id="@+id/zoomControlRecyclerView"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:clipToPadding="false"
+                tools:itemCount="5"
+                tools:listitem="@layout/item_zoom_control_level" />
+        </LinearLayout>
+
+
+    </FrameLayout>
+
+    <com.example.myapplication.GlowingTimerView
+        android:id="@+id/glowTimer"
+        android:layout_width="@dimen/_70sdp"
+        android:layout_height="@dimen/_26sdp"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_margin="12dp"
+        android:layout_marginTop="32dp"
+        android:fontFamily="monospace"
+        android:gravity="center"
+        android:text="00:00:00"
+        android:textSize="@dimen/_18sdp"
+        android:visibility="visible" />
+
     <LinearLayout
         android:id="@+id/leftPanel"
         android:layout_width="wrap_content"
         android:layout_height="match_parent"
         android:layout_gravity="start|center_vertical"
+        android:layout_marginRight="@dimen/_4sdp"
+        android:gravity="center"
         android:orientation="vertical"
         android:padding="8dp"
-        android:gravity="center">
+        android:visibility="gone">
 
         <ImageView
             android:id="@+id/resolutionIcon"
             android:layout_width="32dp"
             android:layout_height="32dp"
-            android:src="@drawable/maximize"
-            android:tint="@color/white"
-            android:contentDescription="Resolution" />
-
+            android:contentDescription="Resolution"
+            android:src="@drawable/maximize_icon"
+            android:visibility="gone" />
 
 
         <ImageView
             android:id="@+id/hdrIcon"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:src="@drawable/refresh_2"
+            android:layout_width="@dimen/_28sdp"
+            android:layout_height="@dimen/_28sdp"
             android:layout_marginTop="16dp"
-            android:contentDescription="HDR" />
+            android:contentDescription="HDR"
+            android:padding="@dimen/_4sdp"
+            android:src="@drawable/flash"
+            android:visibility="gone" />
 
         <ImageView
             android:id="@+id/stabilizeIcon"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:src="@drawable/flash_circle"
+            android:layout_width="@dimen/_28sdp"
+            android:layout_height="@dimen/_28sdp"
             android:layout_marginTop="16dp"
-            android:contentDescription="Stabilization" />
+            android:contentDescription="Stabilization"
+            android:src="@drawable/refresh_2"
+            android:visibility="gone" />
 
         <ImageView
             android:id="@+id/micIcon"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
+            android:layout_width="@dimen/_28sdp"
+            android:layout_height="@dimen/_28sdp"
             android:layout_marginTop="16dp"
-            android:src="@drawable/clock"
-            android:contentDescription="Mute Mic" />
+            android:contentDescription="Mute Mic"
+            android:src="@drawable/timer_start__1"
+            android:visibility="gone" />
     </LinearLayout>
-
 
     <LinearLayout
         android:id="@+id/buttonContainer"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|center_horizontal"
-        android:layout_marginBottom="32dp"
-        android:orientation="horizontal"
+        android:layout_marginBottom="@dimen/_4sdp"
+        android:background="@android:color/transparent"
         android:gravity="center"
-        android:padding="12dp"
-        android:background="@android:color/transparent">
+        android:orientation="vertical"
+        android:padding="12dp">
 
-        <!-- Photo Button -->
-        <ImageButton
-            android:id="@+id/photoButton"
-            android:layout_width="72dp"
-            android:layout_height="72dp"
-            android:layout_marginEnd="24dp"
-            android:background="@drawable/circle_button_bg"
-            android:scaleType="centerInside"
-            android:src="@drawable/ic_camera_white"
-            android:contentDescription="Take Photo" />
 
-        <!-- Video Button -->
-        <ImageButton
-            android:id="@+id/videobutton"
-            android:layout_width="72dp"
-            android:layout_height="72dp"
-            android:background="@drawable/circle_button_bg"
-            android:scaleType="centerInside"
-            android:src="@drawable/ic_video_white"
-            android:contentDescription="Record Video" />
     </LinearLayout>
 
 </FrameLayout>

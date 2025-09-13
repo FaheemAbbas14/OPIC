@@ -88,4 +88,11 @@ dependencies {
 
  implementation("androidx.media3:media3-transformer:1.5.1")
  implementation("androidx.media3:media3-common:1.5.1")
+
+    // Video processing dependencies
+    implementation ("androidx.media3:media3-exoplayer:1.2.1")
+    implementation ("androidx.media3:media3-ui:1.2.1")
+    implementation ("androidx.media3:media3-common:1.2.1")
+    implementation ("androidx.appcompat:appcompat:1.6.1")
+    implementation ("com.github.MasayukiSuda:Mp4Composer-android:0.4.1")
 }

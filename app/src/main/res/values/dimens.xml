@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Missing dimension resources from build errors -->
+    <dimen name="_30sdp">30dp</dimen>
+    <dimen name="_8ssp">8sp</dimen>
+    <dimen name="_20sdp">20dp</dimen>
+    <dimen name="_50sdp">50dp</dimen>
+    <dimen name="_10sdp">10dp</dimen>
+    <dimen name="_10ssp">10sp</dimen>
+    <dimen name="_14sdp">14dp</dimen>
+    <dimen name="_62sdp">62dp</dimen>
+    <dimen name="_90sdp">90dp</dimen>
+    <dimen name="_2sdp">2dp</dimen>
+    <dimen name="_80sdp">80dp</dimen>
+    <dimen name="_11ssp">11sp</dimen>
+    <dimen name="_130sdp">130dp</dimen>
+    <dimen name="_140sdp">140dp</dimen>
+    <dimen name="_1sdp">1dp</dimen>
+    
+    <!-- Additional common dimensions -->
+    <dimen name="_16sdp">16dp</dimen>
+    <dimen name="_24sdp">24dp</dimen>
+    <dimen name="_32sdp">32dp</dimen>
+    <dimen name="_48sdp">48dp</dimen>
+    <dimen name="_64sdp">64dp</dimen>
+    
+    <dimen name="_12ssp">12sp</dimen>
+    <dimen name="_14ssp">14sp</dimen>
+    <dimen name="_16ssp">16sp</dimen>
+    <dimen name="_18ssp">18sp</dimen>
+    <dimen name="_20ssp">20sp</dimen>
+    <dimen name="_24ssp">24sp</dimen>
+</resources>

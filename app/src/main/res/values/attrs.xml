@@ -1,4 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <declare-styleable name="ZoomRulerView">
+        <attr name="zr_minZoom" format="float" />
+        <attr name="zr_maxZoom" format="float" />
+        <attr name="zr_step" format="float" />
+        <attr name="zr_tickSpacing" format="dimension" />
+        <attr name="zr_textSize" format="dimension" />
+        <attr name="zr_pointerRadius" format="dimension" />
+    </declare-styleable>
     <declare-styleable name="AngleLineView">
         <attr name="alv_angle" format="float" />
         <attr name="alv_angleOffset" format="float" />

@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp"
+    android:background="#000000">
+
+    <!-- Video Player -->
+    <androidx.media3.ui.PlayerView
+        android:id="@+id/videoView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginBottom="16dp" />
+
+    <!-- Control Buttons -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:layout_marginBottom="16dp">
+
+        <Button
+            android:id="@+id/btnvideo"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Pick Video"
+            android:layout_marginEnd="8dp"
+            android:backgroundTint="#FD2F55"
+            android:textColor="#FFFFFF" />
+
+        <Button
+            android:id="@+id/btnCrop"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Crop Video"
+            android:layout_marginEnd="8dp"
+            android:backgroundTint="#FD2F55"
+            android:textColor="#FFFFFF" />
+
+        <Button
+            android:id="@+id/btncompression"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Compress"
+            android:backgroundTint="#FD2F55"
+            android:textColor="#FFFFFF" />
+
+    </LinearLayout>
+
+    <!-- Progress Layout -->
+    <LinearLayout
+        android:id="@+id/progressLayout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:visibility="gone"
+        android:background="#1A1A1A"
+        android:padding="16dp"
+        android:layout_marginBottom="16dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Processing Video..."
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:layout_marginBottom="8dp" />
+
+        <ProgressBar
+            android:id="@+id/determinateProgress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="100"
+            android:progress="0"
+            android:progressTint="#FD2F55"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/progressText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="0%"
+            android:textColor="#FD2F55"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+    </LinearLayout>
+
+</LinearLayout>
