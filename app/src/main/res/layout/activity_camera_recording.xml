@@ -41,11 +41,14 @@
             android:textSize="16sp" />
     </LinearLayout>
 
-    <com.example.overlay.RotationLineOverlay
+    <com.example.myapplication.views.RotationLineOverlay
         android:id="@+id/lineOverlay"
         android:layout_width="200dp"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
+        android:visibility="visible"
+        app:sideGap="80dp"
+        app:sideLength="20dp"
         android:clickable="false"
         android:focusable="false"
         />

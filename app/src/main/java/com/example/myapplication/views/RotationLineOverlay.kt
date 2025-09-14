@@ -1,4 +1,4 @@
-package com.example.overlay
+package com.example.myapplication.views
 
 import android.content.Context
 import android.graphics.Canvas
@@ -6,7 +6,9 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.util.AttributeSet
 import android.view.OrientationEventListener
+import android.view.Surface
 import android.view.View
+import com.example.myapplication.R
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
@@ -15,26 +17,45 @@ class RotationLineOverlay @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null
 ) : View(context, attrs) {
 
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.WHITE           // default: not level = white
+    private val centerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        strokeWidth = 8f
+        strokeCap = Paint.Cap.ROUND
+        style = Paint.Style.STROKE
+    }
+    private val sidePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
         strokeWidth = 8f
         strokeCap = Paint.Cap.ROUND
         style = Paint.Style.STROKE
     }
 
-    /** Current smoothed angle in degrees (0..360). */
-    private var angleDeg = 0f
-
-    /** Smoothing factor in [0,1]. Smaller = smoother (more lag). */
+    // Orientation smoothing
+    private var rollDeg = 0f
     var smoothing: Float = 0.15f
+    var levelThresholdDeg: Float = 2f
 
-    /** Within this many degrees of a multiple of 90°, we consider it "level". */
-    var levelThresholdDeg: Float = 2.0f
+    // XML-configurable
+    var centerLineFixedLengthPx: Float = -1f   // if <=0, auto to inner gap
+    var sideLengthPx: Float = 40f              // length of each side line
+    var sideGapPx: Float = 60f                 // horizontal distance from center to each side line center
+
+    init {
+        if (attrs != null) {
+            val a = context.obtainStyledAttributes(attrs, R.styleable.RotationLineOverlay)
+            centerLineFixedLengthPx = a.getDimension(R.styleable.RotationLineOverlay_centerLineLength, -1f)
+            sideGapPx = a.getDimension(R.styleable.RotationLineOverlay_sideGap, 60f)
+            sideLengthPx = a.getDimension(R.styleable.RotationLineOverlay_sideLength, 40f)
+            a.recycle()
+        }
+    }
 
     private val orientationListener = object : OrientationEventListener(context) {
         override fun onOrientationChanged(orientation: Int) {
             if (orientation == ORIENTATION_UNKNOWN) return
-            smoothTo(orientation.toFloat())
+            val delta = shortestDelta(rollDeg, orientation.toFloat())
+            rollDeg = normalize(rollDeg + smoothing * delta)
+            invalidate()
         }
     }
 
@@ -42,16 +63,9 @@ class RotationLineOverlay @JvmOverloads constructor(
         super.onAttachedToWindow()
         if (orientationListener.canDetectOrientation()) orientationListener.enable()
     }
-
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         orientationListener.disable()
-    }
-
-    private fun smoothTo(target: Float) {
-        val delta = shortestDelta(angleDeg, target)
-        angleDeg = normalize(angleDeg + smoothing * delta)
-        invalidate()
     }
 
     private fun shortestDelta(from: Float, to: Float): Float {
@@ -60,37 +74,76 @@ class RotationLineOverlay @JvmOverloads constructor(
         if (d < -180f) d += 360f
         return d
     }
-
     private fun normalize(a: Float): Float {
         var x = a % 360f
         if (x < 0f) x += 360f
         return x
     }
-
-    /** true when angle is within [levelThresholdDeg] of any 0/90/180/270° */
     private fun isLevel(angle: Float): Boolean {
         val mod = ((angle % 90f) + 90f) % 90f
-        val distToNearestRightAngle = min(mod, 90f - mod)
-        return distToNearestRightAngle <= levelThresholdDeg
+        val dist = min(mod, 90f - mod)
+        return dist <= levelThresholdDeg
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
 
-        // set color based on "level" state
-        paint.color = if (isLevel(angleDeg)) Color.YELLOW else Color.WHITE
-
         val contentW = width - paddingLeft - paddingRight
         val contentH = height - paddingTop - paddingBottom
         val cx = paddingLeft + contentW / 2f
         val cy = paddingTop + contentH / 2f
-        val len = min(contentW, contentH) / 2f - paint.strokeWidth
 
-        val drawAngle = (angleDeg + 90f) % 360f     // or use -90f if you prefer
+        // Portrait baseline = horizontal (+90), Landscape = vertical (+0)
+        val screenRotDeg = when (display?.rotation ?: Surface.ROTATION_0) {
+            Surface.ROTATION_0   -> 0f
+            Surface.ROTATION_90  -> 90f
+            Surface.ROTATION_180 -> 180f
+            Surface.ROTATION_270 -> 270f
+            else -> 0f
+        }
+        val baseOffset = if (screenRotDeg == 90f || screenRotDeg == 270f) 0f else 90f
+        val drawAngle = normalize(rollDeg + screenRotDeg + baseOffset)
+
+        val color = if (isLevel(drawAngle)) Color.YELLOW else Color.WHITE
+        centerPaint.color = color
+        sidePaint.color = color
+
+        // Unit vector along the center-line angle
         val rad = Math.toRadians(drawAngle.toDouble())
-        val dx = (cos(rad) * len).toFloat()
-        val dy = (sin(rad) * len).toFloat()
+        val ux = cos(rad).toFloat()
+        val uy = sin(rad).toFloat()
 
-        canvas.drawLine(cx - dx, cy - dy, cx + dx, cy + dy, paint)
+        // ----- Center line (constant length) -----
+        // Inner-gap between side lines when horizontal; used if no explicit center length set
+        val halfSide = sideLengthPx / 2f
+        val leftCX = cx - sideGapPx
+        val rightCX = cx + sideGapPx
+        val innerGap = (rightCX - halfSide) - (leftCX + halfSide)
+        val centerLen = if (centerLineFixedLengthPx > 0f) centerLineFixedLengthPx else innerGap
+
+        val halfCenter = centerLen / 2f
+        val cX1 = cx - ux * halfCenter
+        val cY1 = cy - uy * halfCenter
+        val cX2 = cx + ux * halfCenter
+        val cY2 = cy + uy * halfCenter
+        canvas.drawLine(cX1, cY1, cX2, cY2, centerPaint)
+
+        // ----- Side lines: FIXED positions, but rotate with the center line -----
+        // Keep their centers fixed horizontally from screen center (don’t move),
+        // but their angle follows the center line (use ux,uy direction).
+        val halfSideLen = sideLengthPx / 2f
+
+        // Left side line (center at leftCX,cy) oriented with (ux,uy)
+        canvas.drawLine(
+            leftCX - ux * halfSideLen, cy - uy * halfSideLen,
+            leftCX + ux * halfSideLen, cy + uy * halfSideLen,
+            sidePaint
+        )
+        // Right side line (center at rightCX,cy) oriented with (ux,uy)
+        canvas.drawLine(
+            rightCX - ux * halfSideLen, cy - uy * halfSideLen,
+            rightCX + ux * halfSideLen, cy + uy * halfSideLen,
+            sidePaint
+        )
     }
 }

@@ -21,7 +21,11 @@
         <!-- Visuals -->
         <attr name="lineColor" format="color" />
         <attr name="strokeWidth" format="dimension" />
-
+        <attr name="centerLineLength" format="dimension" />
+        <!-- Gap between center and each side line -->
+        <attr name="sideGap" format="dimension" />
+        <!-- Side line length -->
+        <attr name="sideLength" format="dimension" />
         <!-- Behavior -->
         <attr name="smoothing" format="float" />           <!-- 0..1 (smaller = smoother) -->
         <attr name="angleOffset" format="float" />         <!-- degrees, e.g. +90 -->

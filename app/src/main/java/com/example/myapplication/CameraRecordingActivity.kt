@@ -9,7 +9,6 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Color
 import android.hardware.SensorManager
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
@@ -84,7 +83,7 @@ import androidx.media3.transformer.Transformer
 import androidx.media3.transformer.VideoEncoderSettings
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.example.overlay.RotationLineOverlay
+import com.example.myapplication.views.RotationLineOverlay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -142,7 +141,6 @@ class CameraRecordingActivity : ComponentActivity() {
     private lateinit var sensorManager: SensorManager
     lateinit var li_Message: LinearLayout
     lateinit var progressDialog: AlertDialog
-
     @SuppressLint("MissingInflatedId", "WrongViewCast", "ClickableViewAccessibility")
     @RequiresApi(Build.VERSION_CODES.R)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -173,6 +171,7 @@ class CameraRecordingActivity : ComponentActivity() {
         angleLineView = findViewById<RotationLineOverlay>(R.id.lineOverlay)
         val zoomLevels: MutableList<Float> = mutableListOf(5f, 4f, 3f, 2f, 1.2f, 1f)
       //  pickVideo()
+
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         zoomControlAdapter =
             ZoomAdapterControl(zoomLevels, object : ZoomAdapterControl.OnZoomClick {
@@ -540,16 +539,15 @@ class CameraRecordingActivity : ComponentActivity() {
         }
     }
 
-//    override fun onResume() {
-//        super.onResume()
-//        levelCtl = (levelCtl ?: ThreeLinesLevelController(threeLevelLinesView)).also { it.start() }
-//    }
-//
-//    override fun onPause() {
-//        levelCtl?.stop()
-//        super.onPause()
-//
-//    }
+    override fun onResume() {
+        super.onResume()
+        //levelHelper.start()
+    }
+
+    override fun onPause() {
+        super.onPause()
+       // levelHelper.stop()
+    }
 
 
     @OptIn(ExperimentalCamera2Interop::class)
