@@ -51,6 +51,8 @@ import androidx.camera.core.Camera
 import androidx.camera.core.CameraControl
 import androidx.camera.core.CameraInfo
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.core.ZoomState
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -141,6 +143,16 @@ class CameraRecordingActivity : ComponentActivity() {
     private lateinit var sensorManager: SensorManager
     lateinit var li_Message: LinearLayout
     lateinit var progressDialog: AlertDialog
+
+    // NEW: capture mode
+    private enum class CaptureMode { PHOTO, VIDEO }
+    private var captureMode: CaptureMode = CaptureMode.VIDEO
+
+    // NEW: CameraX photo use-case
+    private var imageCapture: androidx.camera.core.ImageCapture? = null
+
+    // NEW: UI toggle (add a view in layout and wire it here)
+    lateinit var modeToggle: TextView
     @SuppressLint("MissingInflatedId", "WrongViewCast", "ClickableViewAccessibility")
     @RequiresApi(Build.VERSION_CODES.R)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -171,7 +183,15 @@ class CameraRecordingActivity : ComponentActivity() {
         angleLineView = findViewById<RotationLineOverlay>(R.id.lineOverlay)
         val zoomLevels: MutableList<Float> = mutableListOf(5f, 4f, 3f, 2f, 1.2f, 1f)
       //  pickVideo()
+        modeToggle = findViewById(R.id.modeToggle)
+        updateUiForMode()
 
+        modeToggle.setOnClickListener {
+            // Flip mode
+            captureMode = if (captureMode == CaptureMode.VIDEO) CaptureMode.PHOTO else CaptureMode.VIDEO
+            updateUiForMode()
+            bindUseCasesForCurrentMode()
+        }
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         zoomControlAdapter =
             ZoomAdapterControl(zoomLevels, object : ZoomAdapterControl.OnZoomClick {
@@ -280,7 +300,7 @@ class CameraRecordingActivity : ComponentActivity() {
             cameraProvider = cameraProviderFuture.get()
             cameraSelector =
                 getFilteredBackCameraSelector(cameraProvider) ?: CameraSelector.DEFAULT_BACK_CAMERA
-            bindVideoUseCase()
+            bindUseCasesForCurrentMode()
         }, ContextCompat.getMainExecutor(this))
 
 
@@ -298,62 +318,60 @@ class CameraRecordingActivity : ComponentActivity() {
     private fun handleClickListener() {
 
         videobuttonRecording.setOnClickListener {
-            Log.d("checkkSxc", "yess2")
-            tvOPIC.visibility = GONE
-            zoombutton.visibility = VISIBLE
-            stopButton.visibility = VISIBLE
-
-            when {
-                !isRecording -> {
-                    videobuttonRecording.setBackgroundResource(R.drawable.record_button_ring)
-                    videobuttonRecording.setImageResource(R.drawable.recordicon)
-                    // videobuttonRecording.setBackgroundColor(Color.TRANSPARENT)
-                    videobuttonRecording.scaleType = ImageView.ScaleType.CENTER_INSIDE
-                    videobuttonRecording.setPadding(32, 32, 32, 32)
-                    timerView.visibility = VISIBLE
-                    focusScaleView.visibility = GONE
-//                    timerView.isTimerActive = true
-
-                    if (ActivityCompat.checkSelfPermission(
-                            this,
-                            Manifest.permission.RECORD_AUDIO
-                        ) == PackageManager.PERMISSION_GRANTED
-                    ) {
-                        startVideoRecording()
-                    }
-
-                    isRecording = true
-                    isPaused = false
+            when (captureMode) {
+                CaptureMode.PHOTO -> {
+                    takePhoto() // NEW
                 }
-
-                isRecording && !isPaused -> {
-                    // Stop recording completely
-                    stopVideoRecording()
-                    stopTimer()
-                    pausedTime = 0L
-                    timerView.timerText = "00:00:00"
-                    tvOPIC.visibility = VISIBLE
-                    zoombutton.visibility = GONE
-                    stopButton.visibility = GONE
-                    focusScaleView.visibility = GONE
-                    zoombutton.visibility = VISIBLE
-                   // manualfocus.visibility = VISIBLE
-                    videobuttonRecording.setBackgroundResource(R.drawable.circle_button_bg)
-                    isRecording = false
-                    isPaused = false
-                }
-
-                isRecording && isPaused -> {
-                    timerView.timerText = "00:00:00"
-                    pausedTime = 0L
-                    startVideoRecording()
+                CaptureMode.VIDEO -> {
+                    Log.d("checkkSxc", "yess2")
                     tvOPIC.visibility = GONE
                     zoombutton.visibility = VISIBLE
                     stopButton.visibility = VISIBLE
-                    isRecording = true
-                    isPaused = false
-                }
 
+                    when {
+                        !isRecording -> {
+                            videobuttonRecording.setBackgroundResource(R.drawable.record_button_ring)
+                            videobuttonRecording.setImageResource(R.drawable.recordicon)
+                            videobuttonRecording.scaleType = ImageView.ScaleType.CENTER_INSIDE
+                            videobuttonRecording.setPadding(32, 32, 32, 32)
+                            timerView.visibility = VISIBLE
+                            focusScaleView.visibility = GONE
+
+                            if (ActivityCompat.checkSelfPermission(
+                                    this, Manifest.permission.RECORD_AUDIO
+                                ) == PackageManager.PERMISSION_GRANTED
+                            ) {
+                                startVideoRecording()
+                            }
+                            isRecording = true
+                            isPaused = false
+                        }
+                        isRecording && !isPaused -> {
+                            stopVideoRecording()
+                            stopTimer()
+                            pausedTime = 0L
+                            timerView.timerText = "00:00:00"
+                            tvOPIC.visibility = VISIBLE
+                            zoombutton.visibility = GONE
+                            stopButton.visibility = GONE
+                            focusScaleView.visibility = GONE
+                            zoombutton.visibility = VISIBLE
+                            videobuttonRecording.setBackgroundResource(R.drawable.circle_button_bg)
+                            isRecording = false
+                            isPaused = false
+                        }
+                        isRecording && isPaused -> {
+                            timerView.timerText = "00:00:00"
+                            pausedTime = 0L
+                            startVideoRecording()
+                            tvOPIC.visibility = GONE
+                            zoombutton.visibility = VISIBLE
+                            stopButton.visibility = VISIBLE
+                            isRecording = true
+                            isPaused = false
+                        }
+                    }
+                }
             }
         }
 
@@ -1208,6 +1226,113 @@ class CameraRecordingActivity : ComponentActivity() {
             .setView(progressBar)
             .setCancelable(false)  // prevent accidental dismiss
             .create()
+    }
+    private fun updateUiForMode() {
+        modeToggle.text = if (captureMode == CaptureMode.VIDEO) "VIDEO" else "PHOTO"
+        // Show/Hide timer & stop button only in VIDEO mode
+        stopButton.visibility = if (captureMode == CaptureMode.VIDEO && isRecording) VISIBLE else GONE
+        timerView.visibility = if (captureMode == CaptureMode.VIDEO && isRecording) VISIBLE else GONE
+
+        // Change main icon (optional): red circle for video, camera icon for photo
+        if (captureMode == CaptureMode.PHOTO) {
+            videobuttonRecording.setBackgroundResource(R.drawable.circle_button_bg)
+            videobuttonRecording.setImageResource(R.drawable.ic_camera) // add a camera icon resource
+            timerView.isTimerRunning = false
+        } else {
+            videobuttonRecording.setBackgroundResource(R.drawable.circle_button_bg)
+            videobuttonRecording.setImageResource(R.drawable.recordicon)
+        }
+    }
+
+    private fun bindUseCasesForCurrentMode() {
+        if (!::cameraProvider.isInitialized) return
+        cameraProvider.unbindAll()
+        if (captureMode == CaptureMode.PHOTO) {
+            bindPhotoUseCase()
+        } else {
+            bindVideoUseCase() // your existing method
+        }
+    }
+    @OptIn(ExperimentalCamera2Interop::class)
+    private fun bindPhotoUseCase() {
+        try {
+            val previewBuilder = Preview.Builder()
+            val previewExt = Camera2Interop.Extender(previewBuilder)
+
+            if (isManualFocus) {
+                previewExt.setCaptureRequestOption(
+                    CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF
+                )
+            } else {
+                previewExt.setCaptureRequestOption(
+                    CaptureRequest.CONTROL_AF_MODE, CONTROL_AF_MODE_CONTINUOUS_VIDEO
+                )
+            }
+            previewExt.setCaptureRequestOption(
+                CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO
+            )
+
+            val preview = previewBuilder
+                .setTargetAspectRatio(AspectRatio.RATIO_16_9)
+                .build().also { it.surfaceProvider = previewView.surfaceProvider }
+
+            imageCapture = androidx.camera.core.ImageCapture.Builder()
+                .setCaptureMode(androidx.camera.core.ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                .setTargetAspectRatio(AspectRatio.RATIO_16_9)
+                .build()
+
+            camera = cameraProvider.bindToLifecycle(
+                this, cameraSelector, preview, imageCapture
+            )
+            cameraControl = camera!!.cameraControl
+            cameraInfo = camera!!.cameraInfo
+            cameraControl.setZoomRatio(1.2f)
+            setupManualFocusRecyclerView()
+        } catch (e: Exception) {
+            Log.e("CameraRecording", "Error binding photo use case", e)
+            Toast.makeText(this, "Failed to init photo mode: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+    private fun takePhoto() {
+        val imageCapture = this.imageCapture ?: return
+
+        // Pick a cache directory
+        val outDir = externalCacheDir ?: cacheDir
+        if (!outDir.exists()) outDir.mkdirs()
+
+        val name = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", Locale.US)
+            .format(System.currentTimeMillis())
+        val outFile = File(outDir, "IMG_$name.jpg")
+
+        val outputOptions = ImageCapture.OutputFileOptions.Builder(outFile).build()
+
+        imageCapture.takePicture(
+            outputOptions,
+            ContextCompat.getMainExecutor(this),
+            object : ImageCapture.OnImageSavedCallback {
+                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                    // If you only need it inside your app, you can use Uri.fromFile
+                    // val cacheUri = Uri.fromFile(outFile)
+
+                    // Recommended: use FileProvider so you can share it if needed
+                    val cacheUri = FileProvider.getUriForFile(
+                        this@CameraRecordingActivity,
+                        "${packageName}.fileprovider",
+                        outFile
+                    )
+
+                    Log.d("CameraX", "Photo saved to cache: $cacheUri")
+                    Toast.makeText(this@CameraRecordingActivity,
+                        "Saved to cache: $cacheUri", Toast.LENGTH_SHORT).show()
+
+                    // use cacheUri (display, share, upload, etc.)
+                }
+
+                override fun onError(exc: ImageCaptureException) {
+                    Log.e("CameraX", "Photo capture failed: ${exc.message}", exc)
+                }
+            }
+        )
     }
 
 //    private fun saveVideoToGallery(

@@ -35,5 +35,16 @@
             <enum name="fixed" value="1" />
         </attr>
         <attr name="fixedAngle" format="float" />          <!-- used when mode=fixed -->
+
+        <!-- NEW: “line height” (stroke width) -->
+        <attr name="centerStrokeWidth" format="dimension" />
+        <attr name="sideStrokeWidth" format="dimension" />
+
+        <!-- Optional colors -->
+        <attr name="centerColor" format="color" />
+        <attr name="sideColor" format="color" />
+
+        <!-- Optional tuning -->
+        <attr name="levelThreshold" format="float" />
     </declare-styleable>
 </resources>

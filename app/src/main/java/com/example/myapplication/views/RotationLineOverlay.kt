@@ -19,13 +19,13 @@ class RotationLineOverlay @JvmOverloads constructor(
 
     private val centerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
-        strokeWidth = 8f
+        strokeWidth = 6f
         strokeCap = Paint.Cap.ROUND
         style = Paint.Style.STROKE
     }
     private val sidePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
-        strokeWidth = 8f
+        strokeWidth = 6f
         strokeCap = Paint.Cap.ROUND
         style = Paint.Style.STROKE
     }

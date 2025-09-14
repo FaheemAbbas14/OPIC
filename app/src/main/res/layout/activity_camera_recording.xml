@@ -7,6 +7,7 @@
     android:layout_height="match_parent"
     android:background="#000000"
     android:orientation="vertical">
+
     <!-- Camera Preview -->
     <androidx.camera.view.PreviewView
         android:id="@+id/previewView"
@@ -15,6 +16,8 @@
         android:focusable="true"
         android:focusableInTouchMode="true"
         app:scaleType="fillCenter" />
+
+    <!-- Rotate-to-landscape overlay -->
     <LinearLayout
         android:id="@+id/llRotationMessage"
         android:layout_width="match_parent"
@@ -41,18 +44,25 @@
             android:textSize="16sp" />
     </LinearLayout>
 
+    <!-- Level / rotation overlay -->
     <com.example.myapplication.views.RotationLineOverlay
         android:id="@+id/lineOverlay"
         android:layout_width="200dp"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
-        android:visibility="visible"
-        app:sideGap="80dp"
-        app:sideLength="20dp"
         android:clickable="false"
         android:focusable="false"
-        />
+        android:visibility="visible"
+        app:centerColor="@android:color/white"
+        app:centerStrokeWidth="2dp"
+        app:levelThreshold="1.0"
+        app:sideColor="@android:color/white"
+        app:sideGap="80dp"
+        app:sideLength="24dp"
+        app:sideStrokeWidth="2dp"
+        app:smoothing="0.15" />
 
+    <!-- Tap-to-focus ring -->
     <View
         android:id="@+id/focusRing"
         android:layout_width="80dp"
@@ -62,14 +72,12 @@
         android:backgroundTint="@color/white"
         android:visibility="gone" />
 
-    <!-- Timer Text (top center) -->
-
     <FrameLayout
         android:id="@+id/rootLayout"
         android:layout_width="match_parent"
         android:layout_height="match_parent">
 
-        <!-- Button vertical layout (camera controls) -->
+        <!-- Right-side vertical controls -->
         <LinearLayout
             android:id="@+id/buttonLayout"
             android:layout_width="wrap_content"
@@ -80,6 +88,23 @@
             android:gravity="center_vertical"
             android:orientation="vertical"
             android:padding="@dimen/_10sdp">
+
+            <!-- NEW: Photo/Video toggle -->
+            <TextView
+                android:id="@+id/modeToggle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="@dimen/_10sdp"
+                android:background="@drawable/rounded_toggle_bg"
+                android:contentDescription="Toggle Photo or Video mode"
+                android:paddingLeft="@dimen/_10sdp"
+                android:paddingTop="@dimen/_6sdp"
+                android:paddingRight="@dimen/_10sdp"
+                android:paddingBottom="@dimen/_6sdp"
+                android:text="VIDEO"
+                android:textAllCaps="true"
+                android:textColor="@android:color/white"
+                android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/stopButton"
@@ -95,12 +120,12 @@
                 android:textSize="@dimen/_10ssp"
                 android:textStyle="bold" />
 
-
             <ImageButton
                 android:id="@+id/videobutton"
                 android:layout_width="@dimen/_62sdp"
                 android:layout_height="@dimen/_62sdp"
                 android:background="@drawable/circle_button_bg"
+                android:contentDescription="Capture button"
                 android:padding="@dimen/_14sdp"
                 android:scaleType="centerInside" />
 
@@ -111,9 +136,11 @@
                 android:layout_marginStart="@dimen/_10sdp"
                 android:layout_marginTop="@dimen/_10sdp"
                 android:background="@drawable/ring_circle_black1"
+                android:contentDescription="Zoom / search"
                 android:src="@drawable/searchsvg" />
         </LinearLayout>
 
+        <!-- OPIC label (rotated) -->
         <com.example.myapplication.OpicTextView
             android:id="@+id/tv_opic_spartial"
             android:layout_width="@dimen/_80sdp"
@@ -125,6 +152,7 @@
             android:textSize="@dimen/_11ssp"
             android:textStyle="bold" />
 
+        <!-- Manual focus ruler -->
         <com.example.myapplication.FocusRulerView
             android:id="@+id/focusScaleView"
             android:layout_width="100dp"
@@ -139,7 +167,7 @@
             app:zr_textSize="10sp"
             app:zr_tickSpacing="9dp" />
 
-
+        <!-- Zoom ruler -->
         <com.example.myapplication.ZoomRulerView
             android:id="@+id/zoomRulerView"
             android:layout_width="100dp"
@@ -153,8 +181,7 @@
             app:zr_textSize="10sp"
             app:zr_tickSpacing="9dp" />
 
-        <!-- Zoom RecyclerView anchored to left of recording button -->
-
+        <!-- Zoom quick-presets container -->
         <LinearLayout
             android:id="@+id/zoomControlBg"
             android:layout_width="wrap_content"
@@ -176,9 +203,9 @@
                 tools:listitem="@layout/item_zoom_control_level" />
         </LinearLayout>
 
-
     </FrameLayout>
 
+    <!-- Timer -->
     <com.example.myapplication.GlowingTimerView
         android:id="@+id/glowTimer"
         android:layout_width="@dimen/_70sdp"
@@ -192,6 +219,7 @@
         android:textSize="@dimen/_18sdp"
         android:visibility="visible" />
 
+    <!-- Left icons (currently hidden) -->
     <LinearLayout
         android:id="@+id/leftPanel"
         android:layout_width="wrap_content"
@@ -210,7 +238,6 @@
             android:contentDescription="Resolution"
             android:src="@drawable/maximize_icon"
             android:visibility="gone" />
-
 
         <ImageView
             android:id="@+id/hdrIcon"
@@ -241,6 +268,7 @@
             android:visibility="gone" />
     </LinearLayout>
 
+    <!-- Bottom container (free for future controls) -->
     <LinearLayout
         android:id="@+id/buttonContainer"
         android:layout_width="wrap_content"
@@ -250,9 +278,6 @@
         android:background="@android:color/transparent"
         android:gravity="center"
         android:orientation="vertical"
-        android:padding="12dp">
-
-
-    </LinearLayout>
+        android:padding="12dp" />
 
 </FrameLayout>
