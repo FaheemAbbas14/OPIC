@@ -46,5 +46,13 @@
 
         <!-- Optional tuning -->
         <attr name="levelThreshold" format="float" />
+
+        <attr name="rl_response" format="float"/>
+        <attr name="rl_deadbandDeg" format="float"/>
+        <attr name="rl_levelThresholdDeg" format="float"/>
+        <attr name="rl_strokeWidth" format="dimension"/>
+        <attr name="rl_normalColor" format="color"/>
+        <attr name="rl_levelColor" format="color"/>
+        <attr name="rl_centerInset" format="dimension" />
     </declare-styleable>
 </resources>

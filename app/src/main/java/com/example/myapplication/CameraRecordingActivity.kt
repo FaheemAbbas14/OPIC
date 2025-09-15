@@ -123,6 +123,7 @@ class CameraRecordingActivity : ComponentActivity() {
     private var isFlashOn = false
     private var isManualFocus = false
     lateinit var timerImage: ImageView
+
     //lateinit var manualfocus: TextView
     lateinit var tvOPIC: OpicTextView
     lateinit var timerView: GlowingTimerView
@@ -146,6 +147,7 @@ class CameraRecordingActivity : ComponentActivity() {
 
     // NEW: capture mode
     private enum class CaptureMode { PHOTO, VIDEO }
+
     private var captureMode: CaptureMode = CaptureMode.VIDEO
 
     // NEW: CameraX photo use-case
@@ -153,6 +155,7 @@ class CameraRecordingActivity : ComponentActivity() {
 
     // NEW: UI toggle (add a view in layout and wire it here)
     lateinit var modeToggle: TextView
+
     @SuppressLint("MissingInflatedId", "WrongViewCast", "ClickableViewAccessibility")
     @RequiresApi(Build.VERSION_CODES.R)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -170,7 +173,7 @@ class CameraRecordingActivity : ComponentActivity() {
         flashBtn = findViewById(R.id.hdrIcon)
         zoombutton = findViewById(R.id.videobuttonblack)
         timerImage = findViewById(R.id.micIcon)
-       // manualfocus = findViewById(R.id.stopButton)
+        // manualfocus = findViewById(R.id.stopButton)
         li_Message = findViewById(R.id.llRotationMessage)
         tvOPIC = findViewById(R.id.tv_opic_spartial)
         timerView = findViewById<GlowingTimerView>(R.id.glowTimer)
@@ -182,13 +185,14 @@ class CameraRecordingActivity : ComponentActivity() {
         zoomSwipeDetectRecyclerView.rulerView = zoomRulerView
         angleLineView = findViewById<RotationLineOverlay>(R.id.lineOverlay)
         val zoomLevels: MutableList<Float> = mutableListOf(5f, 4f, 3f, 2f, 1.2f, 1f)
-      //  pickVideo()
+        //  pickVideo()
         modeToggle = findViewById(R.id.modeToggle)
         updateUiForMode()
 
         modeToggle.setOnClickListener {
             // Flip mode
-            captureMode = if (captureMode == CaptureMode.VIDEO) CaptureMode.PHOTO else CaptureMode.VIDEO
+            captureMode =
+                if (captureMode == CaptureMode.VIDEO) CaptureMode.PHOTO else CaptureMode.VIDEO
             updateUiForMode()
             bindUseCasesForCurrentMode()
         }
@@ -322,6 +326,7 @@ class CameraRecordingActivity : ComponentActivity() {
                 CaptureMode.PHOTO -> {
                     takePhoto() // NEW
                 }
+
                 CaptureMode.VIDEO -> {
                     Log.d("checkkSxc", "yess2")
                     tvOPIC.visibility = GONE
@@ -346,6 +351,7 @@ class CameraRecordingActivity : ComponentActivity() {
                             isRecording = true
                             isPaused = false
                         }
+
                         isRecording && !isPaused -> {
                             stopVideoRecording()
                             stopTimer()
@@ -360,6 +366,7 @@ class CameraRecordingActivity : ComponentActivity() {
                             isRecording = false
                             isPaused = false
                         }
+
                         isRecording && isPaused -> {
                             timerView.timerText = "00:00:00"
                             pausedTime = 0L
@@ -532,8 +539,10 @@ class CameraRecordingActivity : ComponentActivity() {
             override fun onOrientationChanged(orientation: Int) {
                 if (orientation == ORIENTATION_UNKNOWN) return
 
-                // 0° and 180° → Portrait
-                if ((orientation in 350..360) || (orientation in 0..10) || (orientation in 170..190)) {
+                val isLandscape = (orientation in 45..135) || (orientation in 225..315)
+
+
+                if (!isLandscape) {
                     if (!isRecording) {
                         angleLineView.visibility = View.GONE
                         li_Message.visibility = View.VISIBLE
@@ -541,7 +550,7 @@ class CameraRecordingActivity : ComponentActivity() {
                     // Toast.makeText(baseContext, "Portrait", Toast.LENGTH_SHORT).show()
                 }
                 // 90° and 270° → Landscape
-                else if ((orientation in 80..100) || (orientation in 260..280)) {
+                else {
                     if (!isRecording) {
                         angleLineView.visibility = View.VISIBLE
                         li_Message.visibility = View.GONE
@@ -564,7 +573,7 @@ class CameraRecordingActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
-       // levelHelper.stop()
+        // levelHelper.stop()
     }
 
 
@@ -806,7 +815,7 @@ class CameraRecordingActivity : ComponentActivity() {
                             Toast.makeText(this, "Video recording failed", Toast.LENGTH_SHORT)
                                 .show()
                         }
-                       // finish()
+                        // finish()
                     }
                 }
             }
@@ -1145,7 +1154,8 @@ class CameraRecordingActivity : ComponentActivity() {
             android.os.Handler(Looper.getMainLooper()).post {
                 try {
                     progressDialog.dismiss()
-                } catch (_: Throwable) {}
+                } catch (_: Throwable) {
+                }
             }
             if (cont.isActive) cont.resume(result, onCancellation = null)
         }
@@ -1176,7 +1186,8 @@ class CameraRecordingActivity : ComponentActivity() {
                     android.os.Handler(Looper.getMainLooper()).post {
                         try {
                             progressDialog.dismiss()
-                        } catch (_: Throwable) {}
+                        } catch (_: Throwable) {
+                        }
                     }
                     finishWith(Uri.fromFile(outputFile))
                 }
@@ -1227,11 +1238,14 @@ class CameraRecordingActivity : ComponentActivity() {
             .setCancelable(false)  // prevent accidental dismiss
             .create()
     }
+
     private fun updateUiForMode() {
         modeToggle.text = if (captureMode == CaptureMode.VIDEO) "VIDEO" else "PHOTO"
         // Show/Hide timer & stop button only in VIDEO mode
-        stopButton.visibility = if (captureMode == CaptureMode.VIDEO && isRecording) VISIBLE else GONE
-        timerView.visibility = if (captureMode == CaptureMode.VIDEO && isRecording) VISIBLE else GONE
+        stopButton.visibility =
+            if (captureMode == CaptureMode.VIDEO && isRecording) VISIBLE else GONE
+        timerView.visibility =
+            if (captureMode == CaptureMode.VIDEO && isRecording) VISIBLE else GONE
 
         // Change main icon (optional): red circle for video, camera icon for photo
         if (captureMode == CaptureMode.PHOTO) {
@@ -1253,6 +1267,7 @@ class CameraRecordingActivity : ComponentActivity() {
             bindVideoUseCase() // your existing method
         }
     }
+
     @OptIn(ExperimentalCamera2Interop::class)
     private fun bindPhotoUseCase() {
         try {
@@ -1290,9 +1305,11 @@ class CameraRecordingActivity : ComponentActivity() {
             setupManualFocusRecyclerView()
         } catch (e: Exception) {
             Log.e("CameraRecording", "Error binding photo use case", e)
-            Toast.makeText(this, "Failed to init photo mode: ${e.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Failed to init photo mode: ${e.message}", Toast.LENGTH_LONG)
+                .show()
         }
     }
+
     private fun takePhoto() {
         val imageCapture = this.imageCapture ?: return
 
@@ -1322,8 +1339,10 @@ class CameraRecordingActivity : ComponentActivity() {
                     )
 
                     Log.d("CameraX", "Photo saved to cache: $cacheUri")
-                    Toast.makeText(this@CameraRecordingActivity,
-                        "Saved to cache: $cacheUri", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        this@CameraRecordingActivity,
+                        "Saved to cache: $cacheUri", Toast.LENGTH_SHORT
+                    ).show()
 
                     // use cacheUri (display, share, upload, etc.)
                 }

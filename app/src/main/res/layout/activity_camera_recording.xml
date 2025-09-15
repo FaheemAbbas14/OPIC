@@ -54,12 +54,12 @@
         android:focusable="false"
         android:visibility="visible"
         app:centerColor="@android:color/white"
-        app:centerStrokeWidth="2dp"
+        app:centerStrokeWidth="1dp"
         app:levelThreshold="1.0"
         app:sideColor="@android:color/white"
         app:sideGap="80dp"
         app:sideLength="24dp"
-        app:sideStrokeWidth="2dp"
+        app:sideStrokeWidth="1dp"
         app:smoothing="0.15" />
 
     <!-- Tap-to-focus ring -->
