@@ -87,8 +87,12 @@ import androidx.media3.transformer.Transformer
 import androidx.media3.transformer.VideoEncoderSettings
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.example.myapplication.controllers.ModeSelectorController
+import com.example.myapplication.controllers.ZoomAdapterControl
+import com.example.myapplication.views.GlowingTimerView
 import com.example.myapplication.views.OPICToggler
 import com.example.myapplication.views.RotationLineOverlay
+import com.example.myapplication.views.ZoomRulerView
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -121,6 +125,7 @@ class CameraRecordingActivity : ComponentActivity() {
     private var isPaused = false
     private var pausedTime = 0L
     private var isZoomButtonSelected = false
+
     //lateinit var stopButton: TextView
     lateinit var flashBtn: ImageView
     private var isFlashOn = false
@@ -157,6 +162,7 @@ class CameraRecordingActivity : ComponentActivity() {
     // NEW: CameraX photo use-case
     private var imageCapture: androidx.camera.core.ImageCapture? = null
     var isRotated = false
+    var lastSelectedFocus: Float = 0.0f
 
     @SuppressLint("MissingInflatedId", "WrongViewCast", "ClickableViewAccessibility")
     @RequiresApi(Build.VERSION_CODES.R)
@@ -172,7 +178,7 @@ class CameraRecordingActivity : ComponentActivity() {
         root = findViewById(R.id.root)
         previewView = findViewById(R.id.previewView)
         videobuttonRecording = findViewById(R.id.videobutton)
-       // stopButton = findViewById(R.id.stopButton)
+        // stopButton = findViewById(R.id.stopButton)
         flashBtn = findViewById(R.id.hdrIcon)
         zoombutton = findViewById(R.id.videobuttonblack)
         timerImage = findViewById(R.id.micIcon)
@@ -400,7 +406,7 @@ class CameraRecordingActivity : ComponentActivity() {
                         Log.d("checkkSxc", "yess2")
                         // tvOPIC.visibility = GONE
                         zoombutton.visibility = VISIBLE
-                       // stopButton.visibility = VISIBLE
+                        // stopButton.visibility = VISIBLE
 
                         when {
                             !isRecording -> {
@@ -428,7 +434,7 @@ class CameraRecordingActivity : ComponentActivity() {
                                 timerView.timerText = "00:00:00"
                                 // tvOPIC.visibility = VISIBLE
                                 zoombutton.visibility = GONE
-                               // stopButton.visibility = GONE
+                                // stopButton.visibility = GONE
                                 focusScaleView.visibility = GONE
                                 zoombutton.visibility = VISIBLE
                                 videobuttonRecording.setBackgroundResource(R.drawable.circle_button_bg)
@@ -442,7 +448,7 @@ class CameraRecordingActivity : ComponentActivity() {
                                 startVideoRecording()
                                 tvOPIC.visibility = GONE
                                 zoombutton.visibility = VISIBLE
-                               // stopButton.visibility = VISIBLE
+                                // stopButton.visibility = VISIBLE
                                 isRecording = true
                                 isPaused = false
                             }
@@ -569,7 +575,7 @@ class CameraRecordingActivity : ComponentActivity() {
 
                     // Map to slider (normalized 0..1 for your FocusRulerView)
                     val normalized = 1f - (lastAutoFocusDistance / minFocusDistance)
-                    focusScaleView.focusValue = normalized
+                    focusScaleView.focusValue = lastSelectedFocus
 
                     Log.d(
                         "AF->Manual",
@@ -1074,7 +1080,7 @@ class CameraRecordingActivity : ComponentActivity() {
                 // Map correctly: 0 = closest, 1 = infinity
                 val focusDistance = (1f - newFocus) * minFocusDistance
                 Log.d("FocusSet", "Slider=$newFocus → FocusDistance=$focusDistance")
-
+                lastSelectedFocus = newFocus
                 val options = CaptureRequestOptions.Builder()
                     .setCaptureRequestOption(
                         CaptureRequest.CONTROL_AF_MODE,
@@ -1315,8 +1321,8 @@ class CameraRecordingActivity : ComponentActivity() {
     private fun updateUiForMode() {
         //modeToggle.text = if (captureMode == CaptureMode.VIDEO) "VIDEO" else "PHOTO"
         // Show/Hide timer & stop button only in VIDEO mode
-       // stopButton.visibility =
-            if (captureMode == CaptureMode.VIDEO && isRecording) VISIBLE else GONE
+        // stopButton.visibility =
+        if (captureMode == CaptureMode.VIDEO && isRecording) VISIBLE else GONE
         timerView.visibility =
             if (captureMode == CaptureMode.VIDEO && isRecording) VISIBLE else GONE
 

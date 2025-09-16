@@ -7,6 +7,7 @@ import android.view.MotionEvent
 import android.view.ViewConfiguration
 import android.view.View.VISIBLE
 import androidx.recyclerview.widget.RecyclerView
+import com.example.myapplication.views.ZoomRulerView
 import kotlin.math.abs
 
 class SwipeDetectRecyclerView @JvmOverloads constructor(

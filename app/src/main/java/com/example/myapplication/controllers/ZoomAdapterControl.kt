@@ -1,4 +1,4 @@
-package com.example.myapplication
+package com.example.myapplication.controllers
 
 import android.annotation.SuppressLint
 import android.graphics.Color
@@ -9,6 +9,8 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.core.graphics.ColorUtils
 import androidx.recyclerview.widget.RecyclerView
+import com.example.myapplication.R
+import com.example.myapplication.views.ZoomLevelView
 import java.util.Locale
 import kotlin.math.roundToInt
 

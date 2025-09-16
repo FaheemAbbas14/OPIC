@@ -201,7 +201,7 @@
             app:zr_tickSpacing="9dp" />
 
         <!-- Zoom ruler -->
-        <com.example.myapplication.ZoomRulerView
+        <com.example.myapplication.views.ZoomRulerView
             android:id="@+id/zoomRulerView"
             android:layout_width="100dp"
             android:layout_height="match_parent"
@@ -239,7 +239,7 @@
     </FrameLayout>
 
     <!-- Timer -->
-    <com.example.myapplication.GlowingTimerView
+    <com.example.myapplication.views.GlowingTimerView
         android:id="@+id/glowTimer"
         android:layout_width="@dimen/_70sdp"
         android:layout_height="@dimen/_26sdp"

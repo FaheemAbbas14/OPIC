@@ -1,4 +1,4 @@
-package com.example.myapplication
+package com.example.myapplication.controllers
 
 
 /**
@@ -15,6 +15,7 @@ import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.LinearSnapHelper
 import androidx.recyclerview.widget.RecyclerView
+import com.example.myapplication.R
 import com.example.myapplication.adapters.CameraModeAdapter
 
 class ModeSelectorController(
