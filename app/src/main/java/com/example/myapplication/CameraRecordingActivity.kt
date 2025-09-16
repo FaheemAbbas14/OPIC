@@ -9,6 +9,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.hardware.SensorManager
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
@@ -30,6 +31,7 @@ import android.view.OrientationEventListener
 import android.view.View
 import android.view.View.GONE
 import android.view.View.VISIBLE
+import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -85,6 +87,7 @@ import androidx.media3.transformer.Transformer
 import androidx.media3.transformer.VideoEncoderSettings
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.example.myapplication.views.OPICToggler
 import com.example.myapplication.views.RotationLineOverlay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -118,14 +121,14 @@ class CameraRecordingActivity : ComponentActivity() {
     private var isPaused = false
     private var pausedTime = 0L
     private var isZoomButtonSelected = false
-    lateinit var stopButton: TextView
+    //lateinit var stopButton: TextView
     lateinit var flashBtn: ImageView
     private var isFlashOn = false
     private var isManualFocus = false
     lateinit var timerImage: ImageView
 
-    //lateinit var manualfocus: TextView
-    lateinit var tvOPIC: OpicTextView
+    lateinit var manualfocus: TextView
+    lateinit var tvOPIC: OPICToggler
     lateinit var timerView: GlowingTimerView
     private var isZoomEnabled = false
 
@@ -136,7 +139,7 @@ class CameraRecordingActivity : ComponentActivity() {
     lateinit var zoomControlLayout: LinearLayout
     lateinit var zoomControlAdapter: ZoomAdapterControl
     lateinit var focusScaleView: FocusRulerView
-
+    lateinit var root: FrameLayout
     private var lastAutoFocusDistance: Float = 0.6f
 
     lateinit var angleLineView: RotationLineOverlay
@@ -144,6 +147,7 @@ class CameraRecordingActivity : ComponentActivity() {
     private lateinit var sensorManager: SensorManager
     lateinit var li_Message: LinearLayout
     lateinit var progressDialog: AlertDialog
+    lateinit var modeController: ModeSelectorController
 
     // NEW: capture mode
     private enum class CaptureMode { PHOTO, VIDEO }
@@ -152,9 +156,7 @@ class CameraRecordingActivity : ComponentActivity() {
 
     // NEW: CameraX photo use-case
     private var imageCapture: androidx.camera.core.ImageCapture? = null
-
-    // NEW: UI toggle (add a view in layout and wire it here)
-    lateinit var modeToggle: TextView
+    var isRotated = false
 
     @SuppressLint("MissingInflatedId", "WrongViewCast", "ClickableViewAccessibility")
     @RequiresApi(Build.VERSION_CODES.R)
@@ -167,15 +169,16 @@ class CameraRecordingActivity : ComponentActivity() {
         }
         progressDialog = showProgressDialog(this)
         setContentView(R.layout.activity_camera_recording)
+        root = findViewById(R.id.root)
         previewView = findViewById(R.id.previewView)
         videobuttonRecording = findViewById(R.id.videobutton)
-        stopButton = findViewById(R.id.stopButton)
+       // stopButton = findViewById(R.id.stopButton)
         flashBtn = findViewById(R.id.hdrIcon)
         zoombutton = findViewById(R.id.videobuttonblack)
         timerImage = findViewById(R.id.micIcon)
-        // manualfocus = findViewById(R.id.stopButton)
+        manualfocus = findViewById(R.id.stopButton)
         li_Message = findViewById(R.id.llRotationMessage)
-        tvOPIC = findViewById(R.id.tv_opic_spartial)
+        tvOPIC = findViewById(R.id.mediaToggle)
         timerView = findViewById<GlowingTimerView>(R.id.glowTimer)
         focusScaleView = findViewById(R.id.focusScaleView)
         zoomRulerView = findViewById<ZoomRulerView>(R.id.zoomRulerView)
@@ -186,16 +189,32 @@ class CameraRecordingActivity : ComponentActivity() {
         angleLineView = findViewById<RotationLineOverlay>(R.id.lineOverlay)
         val zoomLevels: MutableList<Float> = mutableListOf(5f, 4f, 3f, 2f, 1.2f, 1f)
         //  pickVideo()
-        modeToggle = findViewById(R.id.modeToggle)
         updateUiForMode()
 
-        modeToggle.setOnClickListener {
-            // Flip mode
-            captureMode =
-                if (captureMode == CaptureMode.VIDEO) CaptureMode.PHOTO else CaptureMode.VIDEO
-            updateUiForMode()
-            bindUseCasesForCurrentMode()
+        tvOPIC.setOnModeChangeListener(object : OPICToggler.OnModeChangeListener {
+            override fun onModeChanged(isVideo: Boolean) {
+                // Flip mode
+                captureMode =
+                    if (captureMode == CaptureMode.VIDEO) CaptureMode.PHOTO else CaptureMode.VIDEO
+                updateUiForMode()
+                bindUseCasesForCurrentMode()
+            }
+        })
+
+// Programmatically switch:
+        tvOPIC.setIsVideoSelected(false) // select "PHOTO"
+
+        val rv = findViewById<RecyclerView>(R.id.rvMode)
+
+        modeController = ModeSelectorController(rv) { isVideo ->
+            // Selected changed by scroll or tap
+            // Update your camera UI / state here:
+
+            toggleMode()
         }
+        setSwiperMovementHandler()
+        // This explicitly forces VIDEO selected on launch:
+        modeController.setIsVideo(true)
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         zoomControlAdapter =
             ZoomAdapterControl(zoomLevels, object : ZoomAdapterControl.OnZoomClick {
@@ -249,7 +268,7 @@ class CameraRecordingActivity : ComponentActivity() {
                     isUserSliding = false
                     zoomRulerView.postDelayed({
 
-
+                        Log.d("ZoomRulerView", "release")
                         // Only show if user isn't sliding anymore
                         if (!isUserSliding && focusScaleView.isGone) {
                             zoomControlLayout.visibility = VISIBLE
@@ -287,6 +306,7 @@ class CameraRecordingActivity : ComponentActivity() {
 
                 lastAppliedStep = steppedZoom
                 zoomRulerView.zoomValue = steppedZoom
+                Log.d("ZoomRulerView", "onZoomChanged: $steppedZoom")
 
             }
         }
@@ -308,8 +328,8 @@ class CameraRecordingActivity : ComponentActivity() {
         }, ContextCompat.getMainExecutor(this))
 
 
-//        manualfocus.setBackgroundResource(R.drawable.record_button_ring1)
-//        manualfocus.setTextColor(Color.WHITE)
+        manualfocus.setBackgroundResource(R.drawable.record_button_ring1)
+        manualfocus.setTextColor(Color.WHITE)
         zoombutton.setBackgroundResource(R.drawable.record_button_ring1)
         zoombutton.setImageResource(R.drawable.zoomwhite)
         zoombutton.scaleType = ImageView.ScaleType.CENTER_INSIDE
@@ -318,64 +338,114 @@ class CameraRecordingActivity : ComponentActivity() {
         handleClickListener()
     }
 
+    private fun toggleMode() {
+        if (captureMode == CaptureMode.PHOTO) {
+            captureMode = CaptureMode.VIDEO
+        } else {
+            captureMode = CaptureMode.PHOTO
+        }
+        updateUiForMode()
+        bindUseCasesForCurrentMode()
+        vibrateOnce()
+    }
+
+    private fun setSwiperMovementHandler() {
+        var startY = 0f
+
+        root.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    startY = event.y
+                    true
+                }
+
+                MotionEvent.ACTION_UP -> {
+                    val deltaY = event.y - startY
+                    if (deltaY > 120) {
+
+                        // Swiped Bottom → Top → PHOTO
+                        modeController.setIsVideo(false)
+                        captureMode = CaptureMode.VIDEO
+                        toggleMode()
+                        // mediaToggle.setIsVideoSelected(false)
+                        // mediaToggle.setIsVideoSelected(true) // if using OPICToggler
+                    } else if (deltaY < -120) {
+                        // Swiped Top → Bottom → VIDEO
+                        modeController.setIsVideo(true)
+                        captureMode = CaptureMode.PHOTO
+                        toggleMode()
+
+                    }
+                    true
+                }
+
+                else -> false
+            }
+        }
+    }
+
     @OptIn(ExperimentalCamera2Interop::class)
     private fun handleClickListener() {
 
         videobuttonRecording.setOnClickListener {
             when (captureMode) {
                 CaptureMode.PHOTO -> {
-                    takePhoto() // NEW
+                    if (!isRotated) {
+                        takePhoto() // NEW
+                    }
                 }
 
                 CaptureMode.VIDEO -> {
-                    Log.d("checkkSxc", "yess2")
-                    tvOPIC.visibility = GONE
-                    zoombutton.visibility = VISIBLE
-                    stopButton.visibility = VISIBLE
+                    if (!isRotated) {
+                        Log.d("checkkSxc", "yess2")
+                        // tvOPIC.visibility = GONE
+                        zoombutton.visibility = VISIBLE
+                       // stopButton.visibility = VISIBLE
 
-                    when {
-                        !isRecording -> {
-                            videobuttonRecording.setBackgroundResource(R.drawable.record_button_ring)
-                            videobuttonRecording.setImageResource(R.drawable.recordicon)
-                            videobuttonRecording.scaleType = ImageView.ScaleType.CENTER_INSIDE
-                            videobuttonRecording.setPadding(32, 32, 32, 32)
-                            timerView.visibility = VISIBLE
-                            focusScaleView.visibility = GONE
+                        when {
+                            !isRecording -> {
+                                videobuttonRecording.setBackgroundResource(R.drawable.record_button_ring)
+                                videobuttonRecording.setImageResource(R.drawable.recordicon)
+                                videobuttonRecording.scaleType = ImageView.ScaleType.CENTER_INSIDE
+                                videobuttonRecording.setPadding(32, 32, 32, 32)
+                                timerView.visibility = VISIBLE
+                                focusScaleView.visibility = GONE
 
-                            if (ActivityCompat.checkSelfPermission(
-                                    this, Manifest.permission.RECORD_AUDIO
-                                ) == PackageManager.PERMISSION_GRANTED
-                            ) {
-                                startVideoRecording()
+                                if (ActivityCompat.checkSelfPermission(
+                                        this, Manifest.permission.RECORD_AUDIO
+                                    ) == PackageManager.PERMISSION_GRANTED
+                                ) {
+                                    startVideoRecording()
+                                }
+                                isRecording = true
+                                isPaused = false
                             }
-                            isRecording = true
-                            isPaused = false
-                        }
 
-                        isRecording && !isPaused -> {
-                            stopVideoRecording()
-                            stopTimer()
-                            pausedTime = 0L
-                            timerView.timerText = "00:00:00"
-                            tvOPIC.visibility = VISIBLE
-                            zoombutton.visibility = GONE
-                            stopButton.visibility = GONE
-                            focusScaleView.visibility = GONE
-                            zoombutton.visibility = VISIBLE
-                            videobuttonRecording.setBackgroundResource(R.drawable.circle_button_bg)
-                            isRecording = false
-                            isPaused = false
-                        }
+                            isRecording && !isPaused -> {
+                                stopVideoRecording()
+                                stopTimer()
+                                pausedTime = 0L
+                                timerView.timerText = "00:00:00"
+                                // tvOPIC.visibility = VISIBLE
+                                zoombutton.visibility = GONE
+                               // stopButton.visibility = GONE
+                                focusScaleView.visibility = GONE
+                                zoombutton.visibility = VISIBLE
+                                videobuttonRecording.setBackgroundResource(R.drawable.circle_button_bg)
+                                isRecording = false
+                                isPaused = false
+                            }
 
-                        isRecording && isPaused -> {
-                            timerView.timerText = "00:00:00"
-                            pausedTime = 0L
-                            startVideoRecording()
-                            tvOPIC.visibility = GONE
-                            zoombutton.visibility = VISIBLE
-                            stopButton.visibility = VISIBLE
-                            isRecording = true
-                            isPaused = false
+                            isRecording && isPaused -> {
+                                timerView.timerText = "00:00:00"
+                                pausedTime = 0L
+                                startVideoRecording()
+                                tvOPIC.visibility = GONE
+                                zoombutton.visibility = VISIBLE
+                               // stopButton.visibility = VISIBLE
+                                isRecording = true
+                                isPaused = false
+                            }
                         }
                     }
                 }
@@ -408,10 +478,10 @@ class CameraRecordingActivity : ComponentActivity() {
                 zoombutton.setBackgroundResource(R.drawable.ring_white_color)
                 zoombutton.setImageResource(R.drawable.zoom_black)
 
-//                manualfocus.setBackgroundResource(R.drawable.record_button_ring1)
-//                manualfocus.setTextColor(Color.WHITE)
-//
-//                isManualFocus = false
+                manualfocus.setBackgroundResource(R.drawable.record_button_ring1)
+                manualfocus.setTextColor(Color.WHITE)
+
+                isManualFocus = false
 
 //                enableAutoFocus()
 //                manualfocus.text = "AF"
@@ -436,14 +506,14 @@ class CameraRecordingActivity : ComponentActivity() {
 
         }
 
-        stopButton.setOnClickListener {
-            stopVideoRecording()
-            stopTimer()
-            pausedTime = 0L // Reset timer value
-            timerView.timerText = "00:00:00" // Reset UI timer
-            isRecording = false
-            isPaused = false
-        }
+//        stopButton.setOnClickListener {
+//            stopVideoRecording()
+//            stopTimer()
+//            pausedTime = 0L // Reset timer value
+//            timerView.timerText = "00:00:00" // Reset UI timer
+//            isRecording = false
+//            isPaused = false
+//        }
 
         flashBtn.setBackgroundResource(R.drawable.record_button_ring1)
         flashBtn.setImageResource(R.drawable.flash_circle)
@@ -465,72 +535,72 @@ class CameraRecordingActivity : ComponentActivity() {
             }
         }
 
-//        manualfocus.setOnClickListener {
-//            if (!isManualFocus) {
-//
-//                // Enable manual focus UI
-//                zoomControlLayout.visibility = GONE
-//                focusScaleView.visibility = VISIBLE
-//                zoomRulerView.visibility = GONE
-//
-//                hideZoomSelectorView()
-//                // Hide zoom UI & disable zoom logic
-//                isZoomEnabled = false
-//                tvOPIC.visibility = GONE
-//                isManualFocus = true
-//                disableAutoFocus()
-//
-//                // store auto focus camera distance
-//
-//                // If AF gave us a last distance, use it as starting point for manual
-//                if (lastAutoFocusDistance > 0f && minFocusDistance > 0f) {
-//                    val camera2Control = Camera2CameraControl.from(camera!!.cameraControl)
-//                    val options = CaptureRequestOptions.Builder()
-//                        .setCaptureRequestOption(
-//                            CaptureRequest.CONTROL_AF_MODE,
-//                            CaptureRequest.CONTROL_AF_MODE_OFF
-//                        )
-//                        .setCaptureRequestOption(
-//                            CaptureRequest.LENS_FOCUS_DISTANCE,
-//                            lastAutoFocusDistance
-//                        )
-//                        .build()
-//                    camera2Control.setCaptureRequestOptions(options)
-//
-//                    // Map to slider (normalized 0..1 for your FocusRulerView)
-//                    val normalized = 1f - (lastAutoFocusDistance / minFocusDistance)
-//                    focusScaleView.focusValue = normalized
-//
-//                    Log.d(
-//                        "AF->Manual",
-//                        "Starting MF at AF=$lastAutoFocusDistance (slider=$normalized)"
-//                    )
-//                }
-//
-//                isZoomButtonSelected = false
-//                manualfocus.setBackgroundResource(R.drawable.manulafocus_bg)
-//                manualfocus.setTextColor(Color.BLACK)
-//                manualfocus.text = "MF"
-//                zoombutton.setBackgroundResource(R.drawable.record_button_ring1)
-//                zoombutton.setImageResource(R.drawable.zoomwhite)
-//                zoombutton.imageTintList = null  // Optional
-//
-//            } else {
-//                enableAutoFocus()
-////                zoomControlLayout.visibility = VISIBLE
-//                focusScaleView.visibility = GONE
-////                zoomRulerView.visibility = VISIBLE
-//                manualfocus.text = "AF"
-//
-////                isZoomEnabled = true  // Still off unless you re-enable above
-////                isZoomButtonSelected = true
-//                isManualFocus = false
-//                tvOPIC.visibility = GONE
-//                manualfocus.setBackgroundResource(R.drawable.record_button_ring1)
-//                manualfocus.setTextColor(Color.WHITE)
-////                selectDefaultZoom()
-//            }
-//        }
+        manualfocus.setOnClickListener {
+            if (!isManualFocus) {
+
+                // Enable manual focus UI
+                zoomControlLayout.visibility = GONE
+                focusScaleView.visibility = VISIBLE
+                zoomRulerView.visibility = GONE
+
+                hideZoomSelectorView()
+                // Hide zoom UI & disable zoom logic
+                isZoomEnabled = false
+                tvOPIC.visibility = GONE
+                isManualFocus = true
+                disableAutoFocus()
+
+                // store auto focus camera distance
+
+                // If AF gave us a last distance, use it as starting point for manual
+                if (lastAutoFocusDistance > 0f && minFocusDistance > 0f) {
+                    val camera2Control = Camera2CameraControl.from(camera!!.cameraControl)
+                    val options = CaptureRequestOptions.Builder()
+                        .setCaptureRequestOption(
+                            CaptureRequest.CONTROL_AF_MODE,
+                            CaptureRequest.CONTROL_AF_MODE_OFF
+                        )
+                        .setCaptureRequestOption(
+                            CaptureRequest.LENS_FOCUS_DISTANCE,
+                            lastAutoFocusDistance
+                        )
+                        .build()
+                    camera2Control.setCaptureRequestOptions(options)
+
+                    // Map to slider (normalized 0..1 for your FocusRulerView)
+                    val normalized = 1f - (lastAutoFocusDistance / minFocusDistance)
+                    focusScaleView.focusValue = normalized
+
+                    Log.d(
+                        "AF->Manual",
+                        "Starting MF at AF=$lastAutoFocusDistance (slider=$normalized)"
+                    )
+                }
+
+                isZoomButtonSelected = false
+                manualfocus.setBackgroundResource(R.drawable.manulafocus_bg)
+                manualfocus.setTextColor(Color.BLACK)
+                manualfocus.text = "MF"
+                zoombutton.setBackgroundResource(R.drawable.record_button_ring1)
+                zoombutton.setImageResource(R.drawable.zoomwhite)
+                zoombutton.imageTintList = null  // Optional
+
+            } else {
+                enableAutoFocus()
+//                zoomControlLayout.visibility = VISIBLE
+                focusScaleView.visibility = GONE
+//                zoomRulerView.visibility = VISIBLE
+                manualfocus.text = "AF"
+
+//                isZoomEnabled = true  // Still off unless you re-enable above
+//                isZoomButtonSelected = true
+                isManualFocus = false
+                tvOPIC.visibility = GONE
+                manualfocus.setBackgroundResource(R.drawable.record_button_ring1)
+                manualfocus.setTextColor(Color.WHITE)
+//                selectDefaultZoom()
+            }
+        }
         checkOrientation()
     }
 
@@ -546,12 +616,14 @@ class CameraRecordingActivity : ComponentActivity() {
                     if (!isRecording) {
                         angleLineView.visibility = View.GONE
                         li_Message.visibility = View.VISIBLE
+                        isRotated = true
                     }
                     // Toast.makeText(baseContext, "Portrait", Toast.LENGTH_SHORT).show()
                 }
                 // 90° and 270° → Landscape
                 else {
                     if (!isRecording) {
+                        isRotated = false
                         angleLineView.visibility = View.VISIBLE
                         li_Message.visibility = View.GONE
                     }
@@ -606,8 +678,8 @@ class CameraRecordingActivity : ComponentActivity() {
         zoombutton.setBackgroundResource(R.drawable.ring_white_color)
         zoombutton.setImageResource(R.drawable.zoom_black)
 
-//        manualfocus.setBackgroundResource(R.drawable.record_button_ring1)
-//        manualfocus.setTextColor(Color.WHITE)
+        manualfocus.setBackgroundResource(R.drawable.record_button_ring1)
+        manualfocus.setTextColor(Color.WHITE)
         zoomRulerView.visibility = GONE
 
     }
@@ -616,13 +688,13 @@ class CameraRecordingActivity : ComponentActivity() {
     fun showZoomSelectorView() {
 
         zoomControlLayout.visibility = VISIBLE
-        tvOPIC.visibility = GONE
+        // tvOPIC.visibility = GONE
         zoomRulerView.visibility = GONE
 
     }
 
     fun hideZoomSelectorView() {
-        tvOPIC.visibility = GONE
+        // tvOPIC.visibility = GONE
         zoomControlLayout.visibility = GONE
         zoomRulerView.visibility = GONE
 
@@ -739,7 +811,8 @@ class CameraRecordingActivity : ComponentActivity() {
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
     private fun startVideoRecording() {
         isRecording = true
-        angleLineView.visibility = View.GONE // hide line when recording starts
+        li_Message.visibility = View.GONE
+        // angleLineView.visibility = View.GONE // hide line when recording starts
         val videoCapture = this.videoCapture ?: return
 
         val name = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", Locale.US)
@@ -1240,9 +1313,9 @@ class CameraRecordingActivity : ComponentActivity() {
     }
 
     private fun updateUiForMode() {
-        modeToggle.text = if (captureMode == CaptureMode.VIDEO) "VIDEO" else "PHOTO"
+        //modeToggle.text = if (captureMode == CaptureMode.VIDEO) "VIDEO" else "PHOTO"
         // Show/Hide timer & stop button only in VIDEO mode
-        stopButton.visibility =
+       // stopButton.visibility =
             if (captureMode == CaptureMode.VIDEO && isRecording) VISIBLE else GONE
         timerView.visibility =
             if (captureMode == CaptureMode.VIDEO && isRecording) VISIBLE else GONE

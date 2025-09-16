@@ -3,6 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/root"
+    android:fitsSystemWindows="true"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#000000"
@@ -83,28 +84,27 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="end|center_vertical"
-            android:layout_marginEnd="@dimen/_50sdp"
             android:background="@android:color/transparent"
             android:gravity="center_vertical"
             android:orientation="vertical"
             android:padding="@dimen/_10sdp">
 
             <!-- NEW: Photo/Video toggle -->
-            <TextView
-                android:id="@+id/modeToggle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="@dimen/_10sdp"
-                android:background="@drawable/rounded_toggle_bg"
-                android:contentDescription="Toggle Photo or Video mode"
-                android:paddingLeft="@dimen/_10sdp"
-                android:paddingTop="@dimen/_6sdp"
-                android:paddingRight="@dimen/_10sdp"
-                android:paddingBottom="@dimen/_6sdp"
-                android:text="VIDEO"
-                android:textAllCaps="true"
-                android:textColor="@android:color/white"
-                android:textStyle="bold" />
+<!--            <TextView-->
+<!--                android:id="@+id/modeToggle"-->
+<!--                android:layout_width="wrap_content"-->
+<!--                android:layout_height="wrap_content"-->
+<!--                android:layout_marginBottom="@dimen/_10sdp"-->
+<!--                android:background="@drawable/rounded_toggle_bg"-->
+<!--                android:contentDescription="Toggle Photo or Video mode"-->
+<!--                android:paddingLeft="@dimen/_10sdp"-->
+<!--                android:paddingTop="@dimen/_6sdp"-->
+<!--                android:paddingRight="@dimen/_10sdp"-->
+<!--                android:paddingBottom="@dimen/_6sdp"-->
+<!--                android:text="VIDEO"-->
+<!--                android:textAllCaps="true"-->
+<!--                android:textColor="@android:color/white"-->
+<!--                android:textStyle="bold" />-->
 
             <TextView
                 android:id="@+id/stopButton"
@@ -116,7 +116,7 @@
                 android:gravity="center"
                 android:scaleType="centerInside"
                 android:text="AF"
-                android:textColor="@color/black"
+                android:textColor="@color/white"
                 android:textSize="@dimen/_10ssp"
                 android:textStyle="bold" />
 
@@ -141,17 +141,50 @@
         </LinearLayout>
 
         <!-- OPIC label (rotated) -->
-        <com.example.myapplication.OpicTextView
-            android:id="@+id/tv_opic_spartial"
-            android:layout_width="@dimen/_80sdp"
-            android:layout_height="@dimen/_24sdp"
+<!--        <com.example.myapplication.OpicTextView-->
+<!--            android:id="@+id/tv_opic_spartial"-->
+<!--            android:layout_width="@dimen/_80sdp"-->
+<!--            android:layout_height="@dimen/_24sdp"-->
+<!--            android:layout_gravity="end|center_vertical"-->
+<!--            android:layout_marginEnd="@dimen/_90sdp"-->
+<!--            android:padding="@dimen/_2sdp"-->
+<!--            android:rotation="270"-->
+<!--            android:visibility="gone"-->
+<!--            android:textSize="@dimen/_11ssp"-->
+<!--            android:textStyle="bold" />-->
+        <com.example.myapplication.views.OPICToggler
             android:layout_gravity="end|center_vertical"
-            android:layout_marginEnd="@dimen/_90sdp"
-            android:padding="@dimen/_2sdp"
             android:rotation="270"
-            android:textSize="@dimen/_11ssp"
-            android:textStyle="bold" />
-
+            android:id="@+id/mediaToggle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:padding="6dp"
+            android:visibility="gone"
+            android:layout_marginEnd="15dp"
+            app:leftLabel="OPIC Video"
+            app:rightLabel="OPIC Photo"
+            app:initialIsVideo="true"
+            app:trackColor="#1AFFFFFF"
+            app:selectedColorStart="#1CF3FF"
+            app:selectedColorEnd="#FD2F55"
+            app:textColor="#FFFFFFFF"
+            app:selectedTextColor="#FF000000"
+            app:textSizeSp="14sp"
+            app:segmentGap="6dp"
+            app:segmentInset="2dp"
+            app:enableSlideAnimation="true"
+            app:animationDurationMs="180" />
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rvMode"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="end|center_vertical"
+            android:rotation="270"
+            android:layout_marginEnd="20dp"
+            android:orientation="horizontal"
+            android:overScrollMode="never"
+            android:clipToPadding="false"
+            android:paddingStart="10dp"/>
         <!-- Manual focus ruler -->
         <com.example.myapplication.FocusRulerView
             android:id="@+id/focusScaleView"

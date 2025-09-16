@@ -55,4 +55,24 @@
         <attr name="rl_levelColor" format="color"/>
         <attr name="rl_centerInset" format="dimension" />
     </declare-styleable>
+    <declare-styleable name="OpicTextView">
+        <!-- existing attrs you already have... -->
+        <attr name="leftLabel" format="string" />
+        <attr name="rightLabel" format="string" />
+        <attr name="initialIsVideo" format="boolean" />
+        <attr name="trackColor" format="color" />
+        <attr name="selectedColorStart" format="color" />
+        <attr name="selectedColorEnd" format="color" />
+        <attr name="textColor" format="color" />
+        <attr name="selectedTextColor" format="color" />
+        <attr name="cornerRadius" format="dimension" />
+        <attr name="textSizeSp" format="dimension" />
+        <attr name="opstrokeWidth" format="dimension" />
+        <attr name="enableSlideAnimation" format="boolean" />
+        <attr name="animationDurationMs" format="integer" />
+
+        <!-- NEW: space between options + inner padding for selected pill -->
+        <attr name="segmentGap" format="dimension" />       <!-- default 6dp -->
+        <attr name="segmentInset" format="dimension" />     <!-- default 2dp -->
+    </declare-styleable>
 </resources>

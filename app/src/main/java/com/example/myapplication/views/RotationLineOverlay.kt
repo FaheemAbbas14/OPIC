@@ -1,6 +1,7 @@
 package com.example.myapplication.views
 
 import android.content.Context
+import android.content.res.Configuration // ✅ NEW
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -40,7 +41,7 @@ class RotationLineOverlay @JvmOverloads constructor(
     var deadbandDeg: Float = 1.0f
         set(value) { field = value.coerceAtLeast(0f) }
 
-    var levelThresholdDeg: Float = 2f
+    var levelThresholdDeg: Float = 1.5f
         set(value) { field = value.coerceAtLeast(0f); invalidate() }
 
     /** If >0, fixed center-line length in px; else auto to gap between side lines minus insets. */
@@ -62,7 +63,6 @@ class RotationLineOverlay @JvmOverloads constructor(
             val w = value.coerceAtLeast(1f)
             centerPaint.strokeWidth = w
             sidePaint.strokeWidth = w
-            // keep default inset in sync if using default
             if (!centerInsetExplicitlySet) centerInsetPx = w
             invalidate()
         }
@@ -116,7 +116,6 @@ class RotationLineOverlay @JvmOverloads constructor(
             )
             strokeWidthPx = stroke
 
-            // Optional explicit inset
             if (a.hasValue(R.styleable.RotationLineOverlay_rl_centerInset)) {
                 centerInsetPx = a.getDimension(
                     R.styleable.RotationLineOverlay_rl_centerInset, strokeWidthPx
@@ -215,7 +214,10 @@ class RotationLineOverlay @JvmOverloads constructor(
         val halfCenter  = centerLen / 2f
         val halfSideLen = halfSide
 
-        if (levelNow) {
+        // ✅ Only merge when level AND device is in landscape
+        val shouldMerge = levelNow && isLandscapeNow()
+
+        if (shouldMerge) {
             // MERGED: draw a single long line from left outer end to right outer end
             val mergedHalf = sideGapPx + halfSide + halfCenter + centerInsetPx
             val x1 = cx - ux * mergedHalf
@@ -235,8 +237,7 @@ class RotationLineOverlay @JvmOverloads constructor(
                 rightCX + ux * halfSideLen, cy + uy * halfSideLen,
                 sidePaint
             )
-
-            // Then center line strictly BETWEEN side lines (shortened by inset on both ends)
+            // Then center line strictly BETWEEN side lines
             val cX1 = cx - ux * halfCenter
             val cY1 = cy - uy * halfCenter
             val cX2 = cx + ux * halfCenter
@@ -262,5 +263,16 @@ class RotationLineOverlay @JvmOverloads constructor(
         val dist = min(mod, 90f - mod)
         return dist <= levelThresholdDeg
     }
+
+    // ✅ NEW: robust landscape check (falls back to width>height if undefined)
+    private fun isLandscapeNow(): Boolean {
+        val o = resources.configuration.orientation
+        return if (o != Configuration.ORIENTATION_UNDEFINED) {
+            o == Configuration.ORIENTATION_LANDSCAPE
+        } else {
+            width > height
+        }
+    }
+
     private fun dp(v: Float) = v * resources.displayMetrics.density
 }

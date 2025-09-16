@@ -29,5 +29,6 @@
     
     <!-- Launcher icon background -->
     <color name="ic_launcher_background">#000000</color>
-
+    <color name="mode_selected">#FFFFFFFF</color>     <!-- white -->
+    <color name="mode_unselected">#80FFFFFF</color>   <!-- translucent gray -->
 </resources>
