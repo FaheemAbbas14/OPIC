@@ -70,9 +70,13 @@
         <attr name="opstrokeWidth" format="dimension" />
         <attr name="enableSlideAnimation" format="boolean" />
         <attr name="animationDurationMs" format="integer" />
-
+        <attr name="opicText" format="string" />
+        <!-- Optional: control text size from XML -->
+        <attr name="opicTextSize" format="dimension" />
         <!-- NEW: space between options + inner padding for selected pill -->
         <attr name="segmentGap" format="dimension" />       <!-- default 6dp -->
         <attr name="segmentInset" format="dimension" />     <!-- default 2dp -->
     </declare-styleable>
+
+
 </resources>

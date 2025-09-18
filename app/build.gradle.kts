@@ -96,4 +96,6 @@ dependencies {
 
     implementation ("androidx.appcompat:appcompat:1.6.1")
     implementation ("com.github.MasayukiSuda:Mp4Composer-android:0.4.1")
+
+    implementation ("com.google.android.material:material:1.12.0")
 }

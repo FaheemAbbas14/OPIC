@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:padding="2dp">
+
+    <!-- Glassy rounded card -->
+    <LinearLayout
+        android:layout_width="280dp"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="18dp"
+        android:background="@drawable/bg_dialog_glass"
+        android:clipToOutline="true">
+
+        <!-- Title -->
+        <TextView
+            android:id="@+id/tvTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Compressing Video"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="#062E3A"
+            android:letterSpacing="0.02"
+            android:paddingBottom="6dp" />
+
+        <!-- Message -->
+        <TextView
+            android:id="@+id/tvMessage"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Please wait while your video is being processed..."
+            android:textSize="14sp"
+            android:textColor="#062E3A"
+            android:paddingBottom="14dp" />
+
+        <!-- Spinner -->
+        <com.google.android.material.progressindicator.CircularProgressIndicator
+            android:id="@+id/progress"
+            style="@style/Widget.Material3.CircularProgressIndicator"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            app:trackColor="#062E3A"
+            android:layout_gravity="center_horizontal"
+            android:indeterminate="true" />
+    </LinearLayout>
+</FrameLayout>

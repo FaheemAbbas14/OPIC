@@ -2,9 +2,9 @@
 
 <com.example.myapplication.views.ZoomLevelView xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/zoomLevelView"
-    android:layout_width="50dp"
-    android:layout_height="50dp"
-    android:layout_margin="4dp"
+    android:layout_width="40dp"
+    android:layout_height="40dp"
+    android:padding="2dp"
     android:gravity="center"
     android:text="1.0×"
     android:textColor="#FFFFFF"

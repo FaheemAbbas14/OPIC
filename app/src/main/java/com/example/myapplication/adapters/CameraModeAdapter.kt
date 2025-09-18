@@ -4,10 +4,10 @@ package com.example.myapplication.adapters
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.TextView
 import androidx.annotation.ColorInt
 import androidx.recyclerview.widget.RecyclerView
 import com.example.myapplication.R
+import com.example.myapplication.views.OpicTextView
 
 class CameraModeAdapter(
     private val modes: List<String>,
@@ -27,7 +27,8 @@ class CameraModeAdapter(
     var onModeSelected: ((position: Int, label: String) -> Unit)? = null
 
     inner class VH(itemView: View) : RecyclerView.ViewHolder(itemView) {
-        val tv: TextView = itemView.findViewById(R.id.tvMode)
+        val tv: OpicTextView = itemView.findViewById(R.id.tvMode)
+        val chip: View = itemView.findViewById(R.id.modeChip) // NEW: container with rounded bg
         init {
             itemView.setOnClickListener {
                 onModeSelected?.invoke(bindingAdapterPosition, modes[bindingAdapterPosition])
@@ -43,11 +44,17 @@ class CameraModeAdapter(
 
     override fun onBindViewHolder(holder: VH, position: Int) {
         val label = modes[position]
-        holder.tv.text = label
-        holder.tv.setTextColor(if (position == selectedPosition) selectedColor else unselectedColor)
-        holder.tv.paint.isFakeBoldText = position == selectedPosition
-        holder.tv.scaleX = if (position == selectedPosition) 1.1f else 1.0f
-        holder.tv.scaleY = if (position == selectedPosition) 1.1f else 1.0f
+        holder.tv.timerText = label
+
+        // NEW: switch rounded transparent background based on selection
+        val selected = position == selectedPosition
+        holder.chip.setBackgroundResource(
+            if (selected) R.drawable.bg_mode_selected else R.drawable.bg_mode_unselected
+        )
+
+        // Optional: a subtle scale cue
+        holder.tv.scaleX = if (selected) 1.08f else 1.0f
+        holder.tv.scaleY = if (selected) 1.08f else 1.0f
     }
 
     override fun getItemCount(): Int = modes.size

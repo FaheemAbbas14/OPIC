@@ -30,4 +30,8 @@
     <dimen name="_18ssp">18sp</dimen>
     <dimen name="_20ssp">20sp</dimen>
     <dimen name="_24ssp">24sp</dimen>
+    <dimen name="mode_item_spacing">12dp</dimen>
+    <!-- If your item width is fixed, set this; otherwise omit or set to 0 and we’ll auto-detect. -->
+    <dimen name="camera_mode_item_width">0dp</dimen>
+
 </resources>

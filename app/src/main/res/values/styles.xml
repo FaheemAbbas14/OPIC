@@ -12,5 +12,14 @@
     <item name="android:textColorHint">#c8c8c8</item>
     <item name="android:textColor">@android:color/black</item>
   </style>
+  <style name="PrettyDialogAnimation">
+    <item name="android:windowEnterAnimation">@anim/pretty_dialog_in</item>
+    <item name="android:windowExitAnimation">@anim/pretty_dialog_out</item>
+  </style>
 
+  <style name="PrettyDialogTheme" parent="ThemeOverlay.Material3.MaterialAlertDialog">
+    <item name="android:windowAnimationStyle">@style/PrettyDialogAnimation</item>
+    <item name="android:windowIsTranslucent">true</item>
+    <item name="android:windowBackground">@android:color/transparent</item>
+  </style>
 </resources>

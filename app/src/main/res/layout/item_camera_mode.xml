@@ -1,14 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<TextView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/tvMode"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/modeChip"
     android:layout_width="wrap_content"
-    android:layout_height="match_parent"
-    android:gravity="center"
-    android:paddingHorizontal="10dp"
-    android:text="PHOTO"
-    android:textAllCaps="true"
-    android:textStyle="bold"
-    android:textSize="16sp"
-    android:includeFontPadding="false"
-    android:layout_marginHorizontal="6dp"
-    android:textColor="@color/mode_unselected"/>
+    android:layout_height="wrap_content"
+    android:paddingStart="12dp"
+    android:paddingEnd="12dp"
+    android:paddingTop="6dp"
+    android:paddingBottom="6dp"
+    android:background="@drawable/bg_mode_unselected">
+
+<com.example.myapplication.views.OpicTextView
+android:id="@+id/tvMode"
+android:layout_width="wrap_content"
+android:layout_height="wrap_content"
+android:contentDescription="Camera Mode" />
+
+    </FrameLayout>
