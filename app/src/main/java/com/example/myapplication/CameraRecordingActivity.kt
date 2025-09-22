@@ -17,6 +17,7 @@ import android.hardware.camera2.CaptureRequest
 import android.hardware.camera2.CaptureResult.CONTROL_AF_MODE_CONTINUOUS_VIDEO
 import android.hardware.camera2.CaptureResult.LENS_FOCUS_DISTANCE
 import android.hardware.camera2.TotalCaptureResult
+import android.media.MediaActionSound
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -42,6 +43,7 @@ import android.widget.TextView
 import android.widget.Toast
 import android.widget.VideoView
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.OptIn
 import androidx.annotation.RequiresApi
 import androidx.annotation.RequiresPermission
@@ -71,7 +73,6 @@ import androidx.camera.video.Recording
 import androidx.camera.video.VideoCapture
 import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.PreviewView
-import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
@@ -96,6 +97,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.example.myapplication.controllers.ModeSelectorController
 import com.example.myapplication.controllers.ZoomAdapterControl
+import com.example.myapplication.helper.ImageSplitter
 import com.example.myapplication.views.GlowingTimerView
 import com.example.myapplication.views.RotationLineOverlay
 import com.example.myapplication.views.ZoomRulerView
@@ -172,11 +174,29 @@ class CameraRecordingActivity : ComponentActivity() {
     // NEW: CameraX photo use-case
     private var imageCapture: androidx.camera.core.ImageCapture? = null
     var isRotated = false
-    var lastSelectedFocus: Float = 0.0f
-    private var lastMFAutoFocusDistance: Float = 0.6f
+    var lastSelectedFocus: Float = 0.08f
+    private var lastMFAutoFocusDistance: Float = 9.2f
     var isZoomSelected = true
     var zoomValue = 1.2f
     var lastAppliedStep: Float? = null
+    var isSoundOn = true
+    private val shutter by lazy {
+        MediaActionSound().apply { load(MediaActionSound.SHUTTER_CLICK) }
+    }
+    private val mediaSounds by lazy {
+        MediaActionSound().apply {
+            load(MediaActionSound.START_VIDEO_RECORDING)
+            load(MediaActionSound.STOP_VIDEO_RECORDING)
+        }
+    }
+    private val pickImageLauncher =
+        registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+            if (uri != null) {
+                // ✅ Got the Uri of selected image
+                cropImage(uri)
+                Log.d("Gallery", "Picked image Uri: $uri")
+            }
+        }
 
     @SuppressLint("MissingInflatedId", "WrongViewCast", "ClickableViewAccessibility")
     @RequiresApi(Build.VERSION_CODES.R)
@@ -211,6 +231,10 @@ class CameraRecordingActivity : ComponentActivity() {
         val zoomLevels: MutableList<Float> = mutableListOf(5f, 4f, 3f, 2f, 1.2f, 1f)
         //  pickVideo()
         updateUiForMode()
+        val pickImage = findViewById<TextView?>(R.id.pickImage)
+        pickImage.setOnClickListener {
+            pickImageLauncher.launch("image/*")
+        }
 
 //        tvOPIC.setOnModeChangeListener(object : OPICToggler.OnModeChangeListener {
 //            override fun onModeChanged(isVideo: Boolean) {
@@ -658,7 +682,7 @@ class CameraRecordingActivity : ComponentActivity() {
 
                     Log.d(
                         "FocusSet",
-                        "Starting MF at AF=$lastAutoFocusDistance (slider=$normalized) lastSelectedFocus $lastSelectedFocus"
+                        "Starting MF at AF=$lastAutoFocusDistance lastMFAutoFocusDistance $lastMFAutoFocusDistance (slider=$normalized) lastSelectedFocus $lastSelectedFocus"
                     )
                 }
 
@@ -733,6 +757,11 @@ class CameraRecordingActivity : ComponentActivity() {
         // levelHelper.stop()
     }
 
+    override fun onDestroy() {
+        shutter.release()
+        mediaSounds.release()
+        super.onDestroy()
+    }
 
     @OptIn(ExperimentalCamera2Interop::class)
     private fun enableAutoFocus() {
@@ -924,6 +953,10 @@ class CameraRecordingActivity : ComponentActivity() {
                         startTimer()
                         isRecording = true
                         isPaused = false
+                        if (isSoundOn) {
+                            // Play system start sound when recording actually starts
+                            mediaSounds.play(MediaActionSound.START_VIDEO_RECORDING)
+                        }
                     }
 
                     // NEW: reflect native pause (in case it’s triggered elsewhere)
@@ -941,7 +974,10 @@ class CameraRecordingActivity : ComponentActivity() {
                         recording = null
                         isRecording = false
                         isPaused = false
-
+                        if (isSoundOn) {
+                            // Play system start sound when recording actually starts
+                            mediaSounds.play(MediaActionSound.STOP_VIDEO_RECORDING)
+                        }
                         if (!recordEvent.hasError()) {
                             val cacheUri = getCacheFileProviderUri(outFile)
                             Log.d("VideoCompressor", "Orignal video saved at: $cacheUri")
@@ -1495,7 +1531,9 @@ class CameraRecordingActivity : ComponentActivity() {
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                     // If you only need it inside your app, you can use Uri.fromFile
                     // val cacheUri = Uri.fromFile(outFile)
-
+                    if (isSoundOn) {
+                        shutter.play(MediaActionSound.SHUTTER_CLICK)   // play on success
+                    }
                     // Recommended: use FileProvider so you can share it if needed
                     val cacheUri = FileProvider.getUriForFile(
                         this@CameraRecordingActivity,
@@ -1504,11 +1542,14 @@ class CameraRecordingActivity : ComponentActivity() {
                     )
 
                     Log.d("CameraX", "Photo saved to cache: $cacheUri")
-                    Toast.makeText(
-                        this@CameraRecordingActivity,
-                        "Saved to cache: $cacheUri", Toast.LENGTH_SHORT
-                    ).show()
-
+//                    Toast.makeText(
+//                        this@CameraRecordingActivity,
+//                        "Saved to cache: $cacheUri", Toast.LENGTH_SHORT
+//                    ).show()
+                    lifecycleScope.launch {
+                        delay(300)
+                        cropImage(cacheUri)
+                    }
                     // use cacheUri (display, share, upload, etc.)
                 }
 
@@ -1540,6 +1581,16 @@ class CameraRecordingActivity : ComponentActivity() {
         // (Optional) UI cues
         videoPauseResume.setBackgroundResource(R.drawable.pause)
         // videobuttonRecording.setImageResource(R.drawable.recordicon)
+    }
+
+    fun cropImage(imageUri: Uri) {
+        val leftUri: Uri = ImageSplitter.splitHalfToUri(this, imageUri, ImageSplitter.Side.LEFT)
+        val rightUri: Uri = ImageSplitter.splitHalfToUri(this, imageUri, ImageSplitter.Side.RIGHT)
+        val imageView = ImageView(this)
+        imageView.setImageURI(leftUri)
+        setContentView(imageView)
+
+
     }
 
 //    private fun saveVideoToGallery(
