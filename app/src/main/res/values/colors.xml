@@ -31,4 +31,9 @@
     <color name="ic_launcher_background">#000000</color>
     <color name="mode_selected">#FFFFFFFF</color>     <!-- white -->
     <color name="mode_unselected">#80FFFFFF</color>   <!-- translucent gray -->
+    <color name="white_80">#CCFFFFFF</color>
+    <color name="white_60">#99FFFFFF</color>
+    <color name="black_40">#66000000</color>
+    <color name="black_60">#99000000</color>
+    <color name="black_80">#CC000000</color>
 </resources>

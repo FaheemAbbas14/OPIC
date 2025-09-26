@@ -15,12 +15,10 @@ import com.example.myapplication.adapters.CameraModeAdapter
 
 class ModeSelectorController(
     private val rv: RecyclerView,
-    private val onSelectionChanged: (isVideo: Boolean) -> Unit
+    private val onSelectionChanged: (index: Int) -> Unit
 ) {
-    // Plain HORIZONTAL manager (no fling override here)
+    // Horizontal list with one-step pager snap
     private val lm = LinearLayoutManager(rv.context, RecyclerView.HORIZONTAL, false)
-
-    // Snap exactly one item per fling / scroll
     private val snap = OneStepPagerSnapHelper()
 
     private val adapter: CameraModeAdapter
@@ -35,7 +33,7 @@ class ModeSelectorController(
         rv.setHasFixedSize(true)
         rv.isNestedScrollingEnabled = false
 
-        // Kill stretch/glow bounce
+        // Disable overscroll effects
         rv.overScrollMode = View.OVER_SCROLL_NEVER
         rv.edgeEffectFactory = object : RecyclerView.EdgeEffectFactory() {
             override fun createEdgeEffect(recyclerView: RecyclerView, direction: Int) =
@@ -54,38 +52,66 @@ class ModeSelectorController(
 
         val ctx: Context = rv.context
         adapter = CameraModeAdapter(
-            modes = listOf("OPIC VIDEO", "OPIC PHOTO"),
+            modes = listOf("OPIC VIDEO", "OPIC PHOTO", "OPIC SLOWMO"),
             selectedColor = ContextCompat.getColor(ctx, R.color.mode_selected),
             unselectedColor = ContextCompat.getColor(ctx, R.color.mode_unselected)
         )
         rv.adapter = adapter
 
-        // Make sure nothing else is listening for flings, then attach
+        // Enforce one-snap behavior
         rv.onFlingListener = null
         snap.attachToRecyclerView(rv)
 
-        // Tap → smooth center
+        // Tap → smooth center that item
         adapter.onModeSelected = { pos, _ -> smoothCenter(pos) }
 
-        // Set selection only when idle (after snap)
+        // When scrolling stops, update selection + callback
         rv.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
                 if (newState == RecyclerView.SCROLL_STATE_IDLE) {
                     val center = snap.findSnapView(lm) ?: return
-                    val pos = lm.getPosition(center)
+                    val pos = lm.getPosition(center).coerceIn(0, adapter.itemCount - 1)
                     if (pos != adapter.selectedPosition) {
                         adapter.selectedPosition = pos
-                        onSelectionChanged(pos == 0) // 0 = VIDEO, 1 = PHOTO
+                        onSelectionChanged(pos) // 0=VIDEO, 1=PHOTO, 2=SLOWMO
+                    } else {
+                        // Even if same, ensure callback once at init
+                        // (optional, keep if you need a guaranteed initial fire)
                     }
                 }
             }
         })
 
-        // Side padding so first/last can be centered; then center initial
+        // Side padding so items can center; then center initial selection (0)
         applySidePaddingThenCenterInitial()
     }
 
+    /**
+     * Kept for backward-compat with your old code.
+     * With 3 modes now, true -> VIDEO (index 0), false -> PHOTO (index 1).
+     */
     fun setIsVideo(isVideo: Boolean) = smoothCenter(if (isVideo) 0 else 1)
+
+    /** Programmatically set the selected index (0=VIDEO, 1=PHOTO, 2=SLOWMO). */
+    fun setIndex(index: Int, notifyNow: Boolean = false) {
+        val clamped = index.coerceIn(0, (adapter.itemCount - 1).coerceAtLeast(0))
+        if (clamped == adapter.selectedPosition) {
+            // Still re-center visually
+            smoothCenter(clamped)
+            if (notifyNow) onSelectionChanged(clamped)
+            return
+        }
+        adapter.selectedPosition = clamped
+        smoothCenter(clamped)
+        if (notifyNow) onSelectionChanged(clamped)
+        // Otherwise, onSelectionChanged will be fired on IDLE after snap
+    }
+
+    fun setVideoNormal(notifyNow: Boolean = false) = setIndex(0, notifyNow)
+    fun setPhoto(notifyNow: Boolean = false) = setIndex(1, notifyNow)
+    fun setSlowMo(notifyNow: Boolean = false) = setIndex(2, notifyNow)
+
+    fun currentIndex(): Int = adapter.selectedPosition
 
     /** Smoothly center a position (align item center to RV center). */
     private fun smoothCenter(position: Int) {
@@ -94,8 +120,10 @@ class ModeSelectorController(
                 lm.computeScrollVectorForPosition(targetPosition)
 
             override fun calculateDtToFit(
-                viewStart: Int, viewEnd: Int,
-                boxStart: Int, boxEnd: Int,
+                viewStart: Int,
+                viewEnd: Int,
+                boxStart: Int,
+                boxEnd: Int,
                 snapPreference: Int
             ): Int {
                 val viewCenter = viewStart + (viewEnd - viewStart) / 2
@@ -105,7 +133,7 @@ class ModeSelectorController(
         }
         scroller.targetPosition = position
         lm.startSmoothScroll(scroller)
-        // selection finalized on IDLE to avoid jitter
+        // Selection callback emitted when scroll state becomes IDLE
     }
 
     private fun applySidePaddingThenCenterInitial() {
@@ -121,9 +149,10 @@ class ModeSelectorController(
         } else {
             rv.post {
                 val child = rv.getChildAt(0)
-                if (child != null && child.width > 0) apply(child.width)
-                else {
-                    rv.scrollToPosition(0)
+                if (child != null && child.width > 0) {
+                    apply(child.width)
+                } else {
+                    rv.scrollToPosition(adapter.selectedPosition)
                     rv.post { apply(rv.getChildAt(0)?.width ?: (rv.width / 3)) }
                 }
             }
@@ -139,8 +168,8 @@ class ModeSelectorController(
         ): Int {
             val base = super.findTargetSnapPosition(layoutManager, velocityX, velocityY)
             if (base == RecyclerView.NO_POSITION) return base
-            val current = findSnapView(layoutManager) ?: return base
-            val curPos = layoutManager.getPosition(current)
+            val currentView = findSnapView(layoutManager) ?: return base
+            val curPos = layoutManager.getPosition(currentView)
             return when {
                 base > curPos -> curPos + 1
                 base < curPos -> curPos - 1
@@ -151,7 +180,9 @@ class ModeSelectorController(
 
     private class Spaces(private val space: Int) : RecyclerView.ItemDecoration() {
         override fun getItemOffsets(out: Rect, view: View, parent: RecyclerView, state: RecyclerView.State) {
-            if (parent.getChildAdapterPosition(view) != RecyclerView.NO_POSITION) out.right = space
+            if (parent.getChildAdapterPosition(view) != RecyclerView.NO_POSITION) {
+                out.right = space
+            }
         }
     }
 }

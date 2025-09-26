@@ -4,7 +4,6 @@ import android.Manifest
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -21,11 +20,11 @@ import android.media.MediaActionSound
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
-import android.provider.MediaStore
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -34,11 +33,12 @@ import android.view.View
 import android.view.View.GONE
 import android.view.View.VISIBLE
 import android.view.ViewGroup
+import android.widget.AdapterView
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.ProgressBar
+import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import android.widget.VideoView
@@ -95,236 +95,225 @@ import androidx.media3.transformer.Transformer
 import androidx.media3.transformer.VideoEncoderSettings
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.example.myapplication.controllers.HybridSlowMoController
 import com.example.myapplication.controllers.ModeSelectorController
 import com.example.myapplication.controllers.ZoomAdapterControl
 import com.example.myapplication.helper.ImageSplitter
+import com.example.myapplication.model.SlowMoOption
+import com.example.myapplication.model.listBackCameraSlowMoOptions
 import com.example.myapplication.views.GlowingTimerView
 import com.example.myapplication.views.RotationLineOverlay
 import com.example.myapplication.views.ZoomRulerView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.TimeUnit
-import kotlin.math.abs
 import kotlin.math.roundToInt
 
 class CameraRecordingActivity : ComponentActivity() {
 
-
+    // ——— CameraX instance state ———
     private var camera: Camera? = null
-    private var minFocusDistance: Float = 0.6f
-    private var currentZoom: Float = 1f
     private lateinit var previewView: PreviewView
     private lateinit var cameraProvider: ProcessCameraProvider
     private lateinit var cameraSelector: CameraSelector
     private var videoCapture: VideoCapture<Recorder>? = null
     private var recording: Recording? = null
-    lateinit var zoombutton: ImageView
-    private var timerJob: Job? = null
-    private var startTime: Long = 0L
-    private var lastVibratedFocusIndex: Int = -1
-    lateinit var videobuttonRecording: ImageButton
-    lateinit var videoPauseResume: ImageButton
     private lateinit var cameraControl: CameraControl
     private lateinit var cameraInfo: CameraInfo
-    private var isRecording = false
-    private var isPaused = false
-    private var pausedTime = 0L
-    private var isZoomButtonSelected = false
 
-    //lateinit var stopButton: TextView
-    lateinit var flashBtn: ImageView
-    private var isFlashOn = false
-    private var isManualFocus = false
-    lateinit var timerImage: ImageView
+    // ——— UI ———
+    private lateinit var zoombutton: ImageView
+    private lateinit var videobuttonRecording: ImageButton
+    private lateinit var videoPauseResume: ImageButton
+    private lateinit var flashBtn: ImageView
+    private lateinit var timerImage: ImageView
+    private lateinit var manualfocus: TextView
+    private lateinit var timerView: GlowingTimerView
+    private lateinit var zoomRulerView: ZoomRulerView
+    private lateinit var zoomSwipeDetectRecyclerView: SwipeDetectRecyclerView
+    private lateinit var zoomControlLayout: LinearLayout
+    private lateinit var zoomControlAdapter: ZoomAdapterControl
+    private lateinit var focusScaleView: FocusRulerView
+    private lateinit var root: FrameLayout
+    private lateinit var angleLineView: RotationLineOverlay
+    private lateinit var li_Message: LinearLayout
+    private lateinit var progressDialog: AlertDialog
+    private lateinit var spnOptions: Spinner
+    private lateinit var modeController: ModeSelectorController
 
-    lateinit var manualfocus: TextView
-
-    // lateinit var tvOPIC: OPICToggler
-    lateinit var timerView: GlowingTimerView
-    private var isZoomEnabled = false
-
-    private var zoomAnimator: ValueAnimator? = null
-    private var currentZoomRatio: Float = 1.2f  // Track current zoom
-    lateinit var zoomRulerView: ZoomRulerView
-    lateinit var zoomSwipeDetectRecyclerView: SwipeDetectRecyclerView
-    lateinit var zoomControlLayout: LinearLayout
-    lateinit var zoomControlAdapter: ZoomAdapterControl
-    lateinit var focusScaleView: FocusRulerView
-    lateinit var root: FrameLayout
-    private var lastAutoFocusDistance: Float = 0.6f
-    private var lastSelectedFocusDistance: Float = 0.6f
-    lateinit var angleLineView: RotationLineOverlay
-    private lateinit var orientationEventListener: OrientationEventListener
-    private lateinit var sensorManager: SensorManager
-    lateinit var li_Message: LinearLayout
-    lateinit var progressDialog: AlertDialog
-    lateinit var modeController: ModeSelectorController
-
-    // NEW: capture mode
+    // ——— Mode & state flags ———
     private enum class CaptureMode { PHOTO, VIDEO }
 
     private var captureMode: CaptureMode = CaptureMode.VIDEO
+    private var isRecording = false
+    private var isPaused = false
+    private var isFlashOn = false
+    private var isManualFocus = false
+    private var isZoomEnabled = false
+    private var isZoomButtonSelected = false
+    private var isRotated = false
+    var isSoundOn = true
 
-    // NEW: CameraX photo use-case
-    private var imageCapture: androidx.camera.core.ImageCapture? = null
-    var isRotated = false
+    // slow-mo single source of truth:
+    var isSlowMo = false
+
+    // ——— Slow-mo controller and options ———
+    private lateinit var controller: HybridSlowMoController
+    private var options: List<SlowMoOption> = emptyList()
+    private var selectedOption: SlowMoOption? = null
+
+    // ——— Focus / zoom ———
+    private var minFocusDistance: Float = 0.6f
+    private var currentZoom: Float = 1f
+    private var currentZoomRatio: Float = 1.2f
+    private var lastAutoFocusDistance: Float = 0.6f
+    private var lastSelectedFocusDistance: Float = 0.6f
     var lastSelectedFocus: Float = 0.08f
     private var lastMFAutoFocusDistance: Float = 9.2f
-    var isZoomSelected = true
     var zoomValue = 1.2f
+    private var zoomAnimator: ValueAnimator? = null
     var lastAppliedStep: Float? = null
-    var isSoundOn = true
-    private val shutter by lazy {
-        MediaActionSound().apply { load(MediaActionSound.SHUTTER_CLICK) }
-    }
+
+    // ——— Timer ———
+    private var timerJob: Job? = null
+    private var startTime: Long = 0L
+    private var pausedTime = 0L
+
+    // ——— Sensors ———
+    private lateinit var orientationEventListener: OrientationEventListener
+    private lateinit var sensorManager: SensorManager
+    private var currentPreview: Preview? = null
+    private var rebindJob: Job? = null
+    @Volatile private var isRebinding = false
+    // ——— Media sounds ———
+    private val shutter by lazy { MediaActionSound().apply { load(MediaActionSound.SHUTTER_CLICK) } }
     private val mediaSounds by lazy {
         MediaActionSound().apply {
             load(MediaActionSound.START_VIDEO_RECORDING)
             load(MediaActionSound.STOP_VIDEO_RECORDING)
         }
     }
+
+    // ——— Photo use case ———
+    private var imageCapture: ImageCapture? = null
+
+    // ——— Pick image (gallery) ———
     private val pickImageLauncher =
         registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-            if (uri != null) {
-                // ✅ Got the Uri of selected image
-                cropImage(uri)
-                Log.d("Gallery", "Picked image Uri: $uri")
-            }
+            if (uri != null) cropImage(uri)
         }
+
+    // ——— Activity lifecycle ———
 
     @SuppressLint("MissingInflatedId", "WrongViewCast", "ClickableViewAccessibility")
     @RequiresApi(Build.VERSION_CODES.R)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         window.setDecorFitsSystemWindows(false)
         WindowInsetsControllerCompat(window, window.decorView).apply {
             hide(WindowInsetsCompat.Type.statusBars())
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
-        progressDialog = showProgressDialog(this)
+
+        progressDialog = showPrettyProgressDialog(this)
         setContentView(R.layout.activity_camera_recording)
+
+        // ——— find views ———
         root = findViewById(R.id.root)
         previewView = findViewById(R.id.previewView)
         videobuttonRecording = findViewById(R.id.videobutton)
         videoPauseResume = findViewById(R.id.videoPauseResume)
-        // stopButton = findViewById(R.id.stopButton)
+        spnOptions = findViewById(R.id.spnOptions)
         flashBtn = findViewById(R.id.hdrIcon)
         zoombutton = findViewById(R.id.videobuttonblack)
         timerImage = findViewById(R.id.micIcon)
         manualfocus = findViewById(R.id.stopButton)
         li_Message = findViewById(R.id.llRotationMessage)
-        //  tvOPIC = findViewById(R.id.mediaToggle)
-        timerView = findViewById<GlowingTimerView>(R.id.glowTimer)
+        timerView = findViewById(R.id.glowTimer)
         focusScaleView = findViewById(R.id.focusScaleView)
-        zoomRulerView = findViewById<ZoomRulerView>(R.id.zoomRulerView)
-        zoomControlLayout = findViewById<LinearLayout?>(R.id.zoomControlBg)
-        zoomSwipeDetectRecyclerView =
-            findViewById<SwipeDetectRecyclerView?>(R.id.zoomControlRecyclerView)
-        zoomSwipeDetectRecyclerView.rulerView = zoomRulerView
-        angleLineView = findViewById<RotationLineOverlay>(R.id.lineOverlay)
-        val zoomLevels: MutableList<Float> = mutableListOf(5f, 4f, 3f, 2f, 1.2f, 1f)
-        //  pickVideo()
+        zoomRulerView = findViewById(R.id.zoomRulerView)
+        zoomControlLayout = findViewById(R.id.zoomControlBg)
+        zoomSwipeDetectRecyclerView = findViewById(R.id.zoomControlRecyclerView)
+        angleLineView = findViewById(R.id.lineOverlay)
+        previewView.implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+        previewView.scaleType = PreviewView.ScaleType.FILL_CENTER
+        // ——— basic UI setup ———
         updateUiForMode()
-        val pickImage = findViewById<TextView?>(R.id.pickImage)
-        pickImage.setOnClickListener {
+        findViewById<TextView>(R.id.pickImage).setOnClickListener {
             pickImageLauncher.launch("image/*")
         }
 
-//        tvOPIC.setOnModeChangeListener(object : OPICToggler.OnModeChangeListener {
-//            override fun onModeChanged(isVideo: Boolean) {
-//                // Flip mode
-//                captureMode =
-//                    if (captureMode == CaptureMode.VIDEO) CaptureMode.PHOTO else CaptureMode.VIDEO
-//                updateUiForMode()
-//                bindUseCasesForCurrentMode()
-//            }
-//        })
-
-// Programmatically switch:
-        // tvOPIC.setIsVideoSelected(false) // select "PHOTO"
-
+        // Move your Mode selector RV if needed
         val rv = findViewById<RecyclerView>(R.id.rvMode)
-// 260dp -> px
         val marginStartPx = 260.dp(rv.context)
-
-// Apply to the view’s layout params (works for ConstraintLayout/LinearLayout/FrameLayout parents)
         rv.updateLayoutParams<ViewGroup.MarginLayoutParams> {
             MarginLayoutParamsCompat.setMarginStart(this, marginStartPx)
         }
-// If you also want to affect LTR-only layouts:
         (rv.layoutParams as ViewGroup.MarginLayoutParams).leftMargin = marginStartPx
-
         rv.requestLayout()
-        modeController = ModeSelectorController(rv) { isVideo ->
-            // Selected changed by scroll or tap
-            // Update your camera UI / state here:
-            if (isVideo) {
-                captureMode = CaptureMode.VIDEO
 
-            } else {
+        // ——— ModeSelector ———
+        modeController = ModeSelectorController(rv) { index ->
+            // Your mapping: index==0 normal video, index==1 photo, else slow-mo
+            if (index == 1) {
                 captureMode = CaptureMode.PHOTO
+            } else {
+                isSlowMo = index != 0
+                captureMode = CaptureMode.VIDEO
             }
+            spnOptions.isEnabled = isSlowMo
             toggleMode()
         }
+
+        controller = HybridSlowMoController(this, this, previewView)
+
+        initAfterPermissions()
         setSwiperMovementHandler()
-        // This explicitly forces VIDEO selected on launch:
-        //ß modeController.setIsVideo(true)
+
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+
+        // ——— Zoom control list ———
+        val zoomLevels: MutableList<Float> = mutableListOf(5f, 4f, 3f, 2f, 1.2f, 1f)
         zoomControlAdapter =
             ZoomAdapterControl(zoomLevels, object : ZoomAdapterControl.OnZoomClick {
                 override fun onZoomClick(ratio: Float) {
                     zoomRulerView.zoomValue = ratio
                     isZoomButtonSelected = true
                     zoomValue = ratio
-                    Log.d("ZoomRulerView", "onZoomChanged: $ratio")
-                    Log.d("ratio", "onCreate: $ratio")
                     cameraControl.setZoomRatio(ratio)
                     currentZoom = ratio
-                    if (ratio == 1.2f) {
-                        zoomControlAdapter.selectRatio(1.2f)
-                    }
+                    if (ratio == 1.2f) zoomControlAdapter.selectRatio(1.2f)
                 }
             })
-
-        val layoutManager = LinearLayoutManager(
-            this, RecyclerView.VERTICAL, false // reverseLayout = false
-        )
-        zoomSwipeDetectRecyclerView.setLayoutManager(layoutManager)
-        zoomSwipeDetectRecyclerView.setAdapter(zoomControlAdapter)
-
+        zoomSwipeDetectRecyclerView.layoutManager =
+            LinearLayoutManager(this, RecyclerView.VERTICAL, false)
+        zoomSwipeDetectRecyclerView.adapter = zoomControlAdapter
+        zoomSwipeDetectRecyclerView.rulerView = zoomRulerView
         zoomControlAdapter.selectRatio(1.2f)
         zoomRulerView.zoomValue = 1.2f
 
-        zoomSwipeDetectRecyclerView.onSwipeUp = {
-            onSwipeDown()
-        }
-
-        zoomSwipeDetectRecyclerView.onSwipeDown = {
-            onSwipeDown()
-        }
-
-        val hideDelay = 3000L // 3 seconds
+        zoomSwipeDetectRecyclerView.onSwipeUp = { onSwipeDown() }
+        zoomSwipeDetectRecyclerView.onSwipeDown = { onSwipeDown() }
 
         var isUserSliding = false
-
+        val hideDelay = 3000L
         zoomRulerView.setOnTouchListener { _, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    isUserSliding = true
-                    zoomControlLayout.visibility = GONE
+                    isUserSliding = true; zoomControlLayout.visibility = GONE
                 }
 
-                MotionEvent.ACTION_MOVE -> {
-                    if (!isUserSliding) {
-                        isUserSliding = true
-                        zoomControlLayout.visibility = GONE
-                    }
+                MotionEvent.ACTION_MOVE -> if (!isUserSliding) {
+                    isUserSliding = true; zoomControlLayout.visibility = GONE
                 }
 
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
@@ -332,8 +321,6 @@ class CameraRecordingActivity : ComponentActivity() {
                     zoomRulerView.postDelayed({
                         isZoomButtonSelected = true
                         zoomValue = lastAppliedStep ?: 0.0f
-                        Log.d("ZoomRulerView", "release zoomValue $zoomValue")
-                        // Only show if user isn't sliding anymore
                         if (!isUserSliding && focusScaleView.isGone) {
                             zoomControlLayout.visibility = VISIBLE
                             zoomRulerView.visibility = GONE
@@ -341,48 +328,31 @@ class CameraRecordingActivity : ComponentActivity() {
                     }, hideDelay)
                 }
             }
-            false // Let ruler process zoom changes too
+            false
         }
 
-
-
         camera?.cameraInfo?.zoomState?.observe(this, Observer { state: ZoomState? ->
-            val cur = state!!.zoomRatio
-            zoomControlAdapter.selectRatio(cur)
-
+            state?.zoomRatio?.let { zoomControlAdapter.selectRatio(it) }
         })
 
-
-        val stepSize = 0.1f   // ruler step size (change to your needs)
-
+        val stepSize = 0.1f
         zoomRulerView.onZoomChanged = { newZoom ->
-            // Snap the new zoom to stepSize (e.g. 2.87 → 2.9)
             var steppedZoom = ((newZoom / stepSize).roundToInt() * stepSize)
-            val diff = abs(lastAppliedStep?.minus(steppedZoom) ?: 0.0f)
-            // Only update if stepped zoom actually changed
             if (lastAppliedStep != steppedZoom) {
                 if (isZoomButtonSelected) {
                     steppedZoom = zoomValue
                     isZoomButtonSelected = false
-                    Log.d("ZoomRulerView", "zoom selected so setting start value")
                 } else {
                     zoomValue = steppedZoom
                 }
-                cameraControl.setZoomRatio(steppedZoom)
+                camera?.cameraControl?.setZoomRatio(steppedZoom)
                 currentZoom = steppedZoom
-
-
-                vibrateOnce()  // vibrate per step change
+                vibrateOnce()
                 zoomControlAdapter.updateSingleZoomStep(newZoom.roundToInt(), newZoom)
-
                 lastAppliedStep = steppedZoom
                 zoomRulerView.zoomValue = steppedZoom
-                Log.d("ZoomRulerView", "onZoomChanged: $steppedZoom")
-
             }
         }
-
-
 
         if (!hasPermissions()) {
             ActivityCompat.requestPermissions(
@@ -398,7 +368,7 @@ class CameraRecordingActivity : ComponentActivity() {
             bindUseCasesForCurrentMode()
         }, ContextCompat.getMainExecutor(this))
 
-
+        // Buttons look
         manualfocus.setBackgroundResource(R.drawable.record_button_ring1)
         manualfocus.setTextColor(Color.WHITE)
         zoombutton.setBackgroundResource(R.drawable.record_button_ring1)
@@ -409,10 +379,96 @@ class CameraRecordingActivity : ComponentActivity() {
         handleClickListener()
     }
 
-    private fun toggleMode() {
+    // ——— Central rebind logic (slow vs normal) ———
+    // CHANGE: make rebindForCurrentMode() serialized
+    private fun rebindForCurrentMode() {
+        if (!::cameraProvider.isInitialized) return
+        if (isRebinding) return
+        isRebinding = true
 
+        rebindJob?.cancel()
+        rebindJob = lifecycleScope.launch {
+            try {
+                // Small debounce to collapse rapid UI triggers (mode switch + spinner)
+                delay(150)
+
+                if (captureMode == CaptureMode.PHOTO) {
+                    controller.release()                 // ensure Camera2 fully closed
+                    cameraProvider.unbindAll()
+                    detachPreviewFromCameraX(currentPreview)
+                    // Let PreviewView release surface before binding
+                    delay(150)
+                    bindPhotoUseCase()
+                    return@launch
+                }
+
+                if (isSlowMo) {
+                    if (options.isEmpty()) {
+                        Toast.makeText(this@CameraRecordingActivity, "No slow-mo options found!", Toast.LENGTH_LONG).show()
+                        return@launch
+                    }
+                    if (selectedOption == null) selectedOption = options.first()
+
+                    // FULL tear-down of CameraX before Camera2
+                    controller.release()
+                    cameraProvider.unbindAll()
+                    detachPreviewFromCameraX(currentPreview)
+                    // Give EGL/Surface a moment to detach
+                    delay(250)
+
+                    // Bind Camera2 high-speed
+                    controller.bind(
+                        selectedOption!!,
+                        onError = { e ->
+                            Log.e("HybridSlowMo", "Bind error", e)
+                            // Fallback gracefully to CameraX if Camera2 HS fails
+                            isSlowMo = false
+                            runOnUiThread {
+                                modeController.setIndex(0)
+                                toggleMode()
+                                Toast.makeText(this@CameraRecordingActivity, "Slow-mo unsupported: ${e.message}", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    )
+                    controller.onTooDark = {
+                        val sixty = options.firstOrNull { it.fpsRange.upper == 60 }
+                        if (sixty != null) {
+                            runOnUiThread {
+                                selectedOption = sixty
+                                isSlowMo = true
+                                rebindForCurrentMode()
+                                Toast.makeText(this@CameraRecordingActivity, "Low light — switched to 60 fps for brightness", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                } else {
+                    controller.release()
+                    cameraProvider.unbindAll()
+                    detachPreviewFromCameraX(currentPreview)
+                    delay(150)
+                    bindVideoUseCase()
+                }
+            } finally {
+                isRebinding = false
+            }
+        }
+    }
+
+
+    private fun detachPreviewFromCameraX(preview: Preview?) {
+        try {
+            preview?.setSurfaceProvider(null)
+        } catch (_: Throwable) {}
+
+    }
+    private fun toggleMode() {
+        if (isSlowMo && captureMode == CaptureMode.VIDEO) {
+            spnOptions.visibility = VISIBLE
+        } else {
+            spnOptions.visibility = GONE
+        }
         updateUiForMode()
-        bindUseCasesForCurrentMode()
+        rebindForCurrentMode()
         vibrateOnce()
     }
 
@@ -429,19 +485,33 @@ class CameraRecordingActivity : ComponentActivity() {
                 MotionEvent.ACTION_UP -> {
                     val deltaY = event.y - startY
                     if (deltaY > 120) {
+                        if (captureMode == CaptureMode.VIDEO) {
+                            // Swipe down → PHOTO
+                            captureMode = CaptureMode.PHOTO
+                            isSlowMo = false
+                            modeController.setIndex(1) // assuming 0=video, 1=photo, 2=slow
+                        } else {
+                            // Swipe down → PHOTO
+                            captureMode = CaptureMode.VIDEO
+                            isSlowMo = true
+                            modeController.setIndex(2) // assuming 0=video, 1=photo, 2=slow
+                        }
 
-                        // Swiped Bottom → Top → PHOTO
-                        modeController.setIsVideo(false)
-                        captureMode = CaptureMode.PHOTO
                         toggleMode()
-                        // mediaToggle.setIsVideoSelected(false)
-                        // mediaToggle.setIsVideoSelected(true) // if using OPICToggler
                     } else if (deltaY < -120) {
-                        // Swiped Top → Bottom → VIDEO
-                        modeController.setIsVideo(true)
-                        captureMode = CaptureMode.VIDEO
+                        // Swipe up → VIDEO (normal → slow-mo)
+                        if (captureMode == CaptureMode.VIDEO && isSlowMo) {
+                            // Swipe down → PHOTO
+                            captureMode = CaptureMode.PHOTO
+                            isSlowMo = false
+                            modeController.setIndex(1) // assuming 0=video, 1=photo, 2=slow
+                        } else {
+                            // From PHOTO or slow → go to VIDEO normal
+                            captureMode = CaptureMode.VIDEO
+                            isSlowMo = false
+                            modeController.setIndex(0)
+                        }
                         toggleMode()
-
                     }
                     true
                 }
@@ -451,72 +521,70 @@ class CameraRecordingActivity : ComponentActivity() {
         }
     }
 
+
     @OptIn(ExperimentalCamera2Interop::class)
     private fun handleClickListener() {
-
         videobuttonRecording.setOnClickListener {
             when (captureMode) {
-                CaptureMode.PHOTO -> {
-                    if (!isRotated) {
-                        takePhoto() // NEW
-                    }
-                }
+                CaptureMode.PHOTO -> if (!isRotated) takePhoto()
+                CaptureMode.VIDEO -> if (!isRotated) {
+                    zoombutton.visibility = VISIBLE
+                    when {
+                        !isRecording -> {
+                            videoPauseResume.visibility = VISIBLE
+                            manualfocus.visibility = GONE
+                            videobuttonRecording.setBackgroundResource(R.drawable.record_button_ring)
+                            videobuttonRecording.setImageResource(R.drawable.recordicon)
+                            videobuttonRecording.scaleType = ImageView.ScaleType.CENTER_INSIDE
+                            videobuttonRecording.setPadding(32, 32, 32, 32)
+                            timerView.visibility = VISIBLE
+                            focusScaleView.visibility = GONE
 
-                CaptureMode.VIDEO -> {
-                    if (!isRotated) {
-                        Log.d("checkkSxc", "yess2")
-                        // tvOPIC.visibility = GONE
-                        zoombutton.visibility = VISIBLE
-                        // stopButton.visibility = VISIBLE
+                            if (ActivityCompat.checkSelfPermission(
+                                    this, Manifest.permission.RECORD_AUDIO
+                                ) == PackageManager.PERMISSION_GRANTED
+                            ) startVideoRecording()
 
-                        when {
-                            !isRecording -> {
-                                videoPauseResume.visibility = VISIBLE
-                                manualfocus.visibility = GONE
-                                videobuttonRecording.setBackgroundResource(R.drawable.record_button_ring)
-                                videobuttonRecording.setImageResource(R.drawable.recordicon)
-                                videobuttonRecording.scaleType = ImageView.ScaleType.CENTER_INSIDE
-                                videobuttonRecording.setPadding(32, 32, 32, 32)
-                                timerView.visibility = VISIBLE
-                                focusScaleView.visibility = GONE
+                            isRecording = true
+                            isPaused = false
+                        }
 
-                                if (ActivityCompat.checkSelfPermission(
-                                        this, Manifest.permission.RECORD_AUDIO
-                                    ) == PackageManager.PERMISSION_GRANTED
-                                ) {
-                                    startVideoRecording()
-                                }
-                                isRecording = true
-                                isPaused = false
-                            }
-
-                            isRecording && !isPaused -> {
-                                videoPauseResume.visibility = GONE
-                                manualfocus.visibility = VISIBLE
+                        isRecording && !isPaused -> {
+                            if (isSlowMo) {
+                                controller.stopRecording(
+                                    onSaved = { uri ->
+                                        isRecording = false
+                                        Log.d("SlowMoTest", "Finalized video = $uri")
+                                        playBack(uri)
+                                    },
+                                    onError = { e ->
+                                        isRecording = false
+                                        Log.e("SlowMoTest", "Stop error", e)
+                                    }
+                                )
+                            } else {
                                 stopVideoRecording()
-                                stopTimer()
-                                pausedTime = 0L
-                                timerView.timerText = "00:00:00"
-                                // tvOPIC.visibility = VISIBLE
-                                zoombutton.visibility = GONE
-                                // stopButton.visibility = GONE
-                                focusScaleView.visibility = GONE
-                                zoombutton.visibility = VISIBLE
-                                videobuttonRecording.setBackgroundResource(R.drawable.circle_button_bg)
-                                isRecording = false
-                                isPaused = false
                             }
+                            videoPauseResume.visibility = GONE
+                            manualfocus.visibility = VISIBLE
+                            stopTimer()
+                            pausedTime = 0L
+                            timerView.timerText = "00:00:00"
+                            zoombutton.visibility = GONE
+                            focusScaleView.visibility = GONE
+                            zoombutton.visibility = VISIBLE
+                            videobuttonRecording.setBackgroundResource(R.drawable.circle_button_bg)
+                            isRecording = false
+                            isPaused = false
+                        }
 
-                            isRecording && isPaused -> {
-                                timerView.timerText = "00:00:00"
-                                pausedTime = 0L
-                                startVideoRecording()
-                                // tvOPIC.visibility = GONE
-                                zoombutton.visibility = VISIBLE
-                                // stopButton.visibility = VISIBLE
-                                isRecording = true
-                                isPaused = false
-                            }
+                        isRecording && isPaused -> {
+                            timerView.timerText = "00:00:00"
+                            pausedTime = 0L
+                            startVideoRecording()
+                            zoombutton.visibility = VISIBLE
+                            isRecording = true
+                            isPaused = false
                         }
                     }
                 }
@@ -524,27 +592,15 @@ class CameraRecordingActivity : ComponentActivity() {
         }
 
         videoPauseResume.setOnClickListener {
-
             if (isRotated) return@setOnClickListener
-
             zoombutton.visibility = VISIBLE
             focusScaleView.visibility = GONE
-
             when {
-                // Pause
-                isRecording && !isPaused -> {
-                    pauseVideoRecording() // NEW
-                }
-
-                // Resume
-                isRecording && isPaused -> {
-                    resumeVideoRecording() // NEW
-                }
+                isRecording && !isPaused -> pauseVideoRecording()
+                isRecording && isPaused -> resumeVideoRecording()
             }
         }
 
-
-// NEW: long-press to STOP (finalize)
         videobuttonRecording.setOnLongClickListener {
             if (isRecording) {
                 stopVideoRecording()
@@ -552,7 +608,6 @@ class CameraRecordingActivity : ComponentActivity() {
                 pausedTime = 0L
                 timerView.timerText = "00:00:00"
                 zoombutton.visibility = GONE
-
                 videobuttonRecording.setBackgroundResource(R.drawable.circle_button_bg)
                 videobuttonRecording.setImageResource(R.drawable.recordicon)
                 isRecording = false
@@ -561,107 +616,53 @@ class CameraRecordingActivity : ComponentActivity() {
             true
         }
 
-
-//        selectDefaultZoom()
         hideZoomSelectorView()
-//        enableAutoFocus()
-        /*
-                zoombutton.setOnClickListener {
-                    zoombutton.setBackgroundResource(R.drawable.ring_white_color)
-                    zoombutton.setImageResource(R.drawable.zoom_black)
-                    manualfocus.setBackgroundResource(R.drawable.record_button_ring1)
-                    manualfocus.setTextColor(Color.WHITE)
-                    focusScaleView.visibility = GONE
-                    isManualFocus = false
-                    enableAutoFocus()
-
-                    showZoomSelectorView()
-
-                }
-        */
 
         zoombutton.setOnClickListener {
             isZoomButtonSelected = !isZoomButtonSelected
-
             if (isZoomButtonSelected) {
                 zoombutton.setBackgroundResource(R.drawable.ring_white_color)
                 zoombutton.setImageResource(R.drawable.zoom_black)
-
                 manualfocus.setBackgroundResource(R.drawable.record_button_ring1)
                 manualfocus.setTextColor(Color.WHITE)
-
                 isManualFocus = false
-
-//                enableAutoFocus()
-//                manualfocus.text = "AF"
-
                 zoomControlLayout.visibility = GONE
                 focusScaleView.visibility = GONE
-
                 showZoomSelectorView()
-
-
             } else {
                 zoombutton.setBackgroundResource(R.drawable.record_button_ring1)
                 zoombutton.setImageResource(R.drawable.zoomwhite)
                 zoomControlLayout.visibility = VISIBLE
                 focusScaleView.visibility = GONE
                 isManualFocus = false
-
-
                 hideZoomSelectorView()
-
             }
-
         }
-
-//        stopButton.setOnClickListener {
-//            stopVideoRecording()
-//            stopTimer()
-//            pausedTime = 0L // Reset timer value
-//            timerView.timerText = "00:00:00" // Reset UI timer
-//            isRecording = false
-//            isPaused = false
-//        }
 
         flashBtn.setBackgroundResource(R.drawable.record_button_ring1)
         flashBtn.setImageResource(R.drawable.flash_circle)
-
         flashBtn.setOnClickListener {
             if (::cameraControl.isInitialized) {
                 isFlashOn = !isFlashOn
                 cameraControl.enableTorch(isFlashOn)
                 if (isFlashOn) {
-                    flashBtn.setImageResource(R.drawable.flash_on) // your "flash on" icon
-                    //flashBtn.imageTintList = ColorStateList.valueOf(Color.YELLOW)
+                    flashBtn.setImageResource(R.drawable.flash_on)
                 } else {
                     flashBtn.setBackgroundResource(R.drawable.record_button_ring1)
                     flashBtn.setImageResource(R.drawable.flash_circle)
-
-                    // flashBtn.setImageResource(R.drawable.flash) // your "flash off" icon
-                    // flashBtn.imageTintList = ColorStateList.valueOf(Color.WHITE)
                 }
             }
         }
 
         manualfocus.setOnClickListener {
             if (!isManualFocus) {
-
-                // Enable manual focus UI
                 zoomControlLayout.visibility = GONE
                 focusScaleView.visibility = VISIBLE
                 zoomRulerView.visibility = GONE
-
-                hideZoomSelectorView()
-                // Hide zoom UI & disable zoom logic
                 isZoomEnabled = false
-                // tvOPIC.visibility = GONE
                 isManualFocus = true
                 disableAutoFocus()
 
-                // store auto focus camera distance
-
-                // If AF gave us a last distance, use it as starting point for manual
                 if (lastAutoFocusDistance > 0f && minFocusDistance > 0f) {
                     val camera2Control = Camera2CameraControl.from(camera!!.cameraControl)
                     val options = CaptureRequestOptions.Builder()
@@ -676,13 +677,11 @@ class CameraRecordingActivity : ComponentActivity() {
                         .build()
                     camera2Control.setCaptureRequestOptions(options)
 
-                    // Map to slider (normalized 0..1 for your FocusRulerView)
                     val normalized = 1f - (lastMFAutoFocusDistance / minFocusDistance)
                     focusScaleView.focusValue = lastSelectedFocus
-
                     Log.d(
                         "FocusSet",
-                        "Starting MF at AF=$lastAutoFocusDistance lastMFAutoFocusDistance $lastMFAutoFocusDistance (slider=$normalized) lastSelectedFocus $lastSelectedFocus"
+                        "Starting MF at AF=$lastAutoFocusDistance MF=$lastMFAutoFocusDistance (slider=$normalized)"
                     )
                 }
 
@@ -692,69 +691,48 @@ class CameraRecordingActivity : ComponentActivity() {
                 manualfocus.text = "MF"
                 zoombutton.setBackgroundResource(R.drawable.record_button_ring1)
                 zoombutton.setImageResource(R.drawable.zoomwhite)
-                zoombutton.imageTintList = null  // Optional
-
+                zoombutton.imageTintList = null
             } else {
                 enableAutoFocus()
-//                zoomControlLayout.visibility = VISIBLE
                 focusScaleView.visibility = GONE
-//                zoomRulerView.visibility = VISIBLE
                 manualfocus.text = "AF"
-
-//                isZoomEnabled = true  // Still off unless you re-enable above
-//                isZoomButtonSelected = true
                 isManualFocus = false
-                // tvOPIC.visibility = GONE
                 manualfocus.setBackgroundResource(R.drawable.record_button_ring1)
                 manualfocus.setTextColor(Color.WHITE)
-//                selectDefaultZoom()
             }
         }
+
         checkOrientation()
+    }
+
+    private fun playBack(outputUri: Uri) {
+        val vv = VideoView(this)
+        vv.setVideoURI(outputUri)
+        vv.start()
+        setContentView(vv)
     }
 
     private fun checkOrientation() {
         orientationEventListener = object : OrientationEventListener(this) {
             override fun onOrientationChanged(orientation: Int) {
                 if (orientation == ORIENTATION_UNKNOWN) return
-
                 val isLandscape = (orientation in 45..135) || (orientation in 225..315)
-
-
                 if (!isLandscape) {
                     if (!isRecording) {
                         angleLineView.visibility = View.GONE
                         li_Message.visibility = View.VISIBLE
                         isRotated = true
                     }
-                    // Toast.makeText(baseContext, "Portrait", Toast.LENGTH_SHORT).show()
-                }
-                // 90° and 270° → Landscape
-                else {
+                } else {
                     if (!isRecording) {
                         isRotated = false
                         angleLineView.visibility = View.VISIBLE
                         li_Message.visibility = View.GONE
                     }
-                    //Toast.makeText(baseContext, "Landscape", Toast.LENGTH_SHORT).show()
                 }
             }
         }
-        // Keep it horizontal in every rotation:
-        // angleLineView.angle = 0f
-        if (orientationEventListener.canDetectOrientation()) {
-            orientationEventListener.enable()
-        }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        //levelHelper.start()
-    }
-
-    override fun onPause() {
-        super.onPause()
-        // levelHelper.stop()
+        if (orientationEventListener.canDetectOrientation()) orientationEventListener.enable()
     }
 
     override fun onDestroy() {
@@ -787,41 +765,20 @@ class CameraRecordingActivity : ComponentActivity() {
         camera2Control.setCaptureRequestOptions(options)
     }
 
-
-    private fun selectDefaultZoom() {
-        zoombutton.setBackgroundResource(R.drawable.ring_white_color)
-        zoombutton.setImageResource(R.drawable.zoom_black)
-
-        manualfocus.setBackgroundResource(R.drawable.record_button_ring1)
-        manualfocus.setTextColor(Color.WHITE)
-        zoomRulerView.visibility = GONE
-
-    }
-
-
     fun showZoomSelectorView() {
-
         zoomControlLayout.visibility = VISIBLE
-        // tvOPIC.visibility = GONE
         zoomRulerView.visibility = GONE
-
     }
 
     fun hideZoomSelectorView() {
-        // tvOPIC.visibility = GONE
         zoomControlLayout.visibility = GONE
         zoomRulerView.visibility = GONE
-
     }
 
-
     private fun hasPermissions(): Boolean {
-        val cameraPermission = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
-        val audioPermission =
-            ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-        return cameraPermission == PackageManager.PERMISSION_GRANTED && audioPermission == PackageManager.PERMISSION_GRANTED
-
-
+        val cam = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+        val aud = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+        return cam == PackageManager.PERMISSION_GRANTED && aud == PackageManager.PERMISSION_GRANTED
     }
 
     override fun onRequestPermissionsResult(
@@ -829,18 +786,15 @@ class CameraRecordingActivity : ComponentActivity() {
         permissions: Array<String>,
         grantResults: IntArray
     ) {
-
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == 101) {
             if (grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-                // Restart the activity
                 val pm = packageManager
                 val intent = pm.getLaunchIntentForPackage(packageName)
                 intent?.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
                 finish()
                 startActivity(intent)
-                Runtime.getRuntime().exit(0) // Ensures full restart
-//                Toast.makeText(this, "Permissions granted", Toast.LENGTH_SHORT).show()
+                Runtime.getRuntime().exit(0)
             } else {
                 Toast.makeText(this, "Permissions denied", Toast.LENGTH_LONG).show()
             }
@@ -850,23 +804,26 @@ class CameraRecordingActivity : ComponentActivity() {
     @OptIn(ExperimentalCamera2Interop::class)
     private fun bindVideoUseCase() {
         try {
-            // Use Camera2Interop to configure Preview Builder
+            currentPreview = Preview.Builder()
+                .setTargetAspectRatio(AspectRatio.RATIO_16_9)
+                .build().also {
+                    it.setSurfaceProvider(previewView.surfaceProvider)
+                }
             val previewBuilder = Preview.Builder()
             val previewExtender = Camera2Interop.Extender(previewBuilder)
 
             if (isManualFocus) {
-                // Manual focus = autofocus disabled
                 previewExtender.setCaptureRequestOption(
-                    CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF
+                    CaptureRequest.CONTROL_AF_MODE,
+                    CaptureRequest.CONTROL_AF_MODE_OFF
                 )
             } else {
-                // Autofocus enabled
                 previewExtender.setCaptureRequestOption(
-                    CaptureRequest.CONTROL_AF_MODE, CONTROL_AF_MODE_CONTINUOUS_VIDEO
+                    CaptureRequest.CONTROL_AF_MODE,
+                    CONTROL_AF_MODE_CONTINUOUS_VIDEO
                 )
             }
 
-            // 🔑 Attach CaptureCallback to read AF updates
             previewExtender.setSessionCaptureCallback(object :
                 CameraCaptureSession.CaptureCallback() {
                 override fun onCaptureCompleted(
@@ -875,47 +832,39 @@ class CameraRecordingActivity : ComponentActivity() {
                     result: TotalCaptureResult
                 ) {
                     super.onCaptureCompleted(session, request, result)
-
-                    val focusDistance = result.get(LENS_FOCUS_DISTANCE)
-                    if (focusDistance != null && focusDistance > 0f) {
-                        lastAutoFocusDistance = focusDistance
-                        if (isManualFocus) {
-                            lastMFAutoFocusDistance = focusDistance
+                    result.get(LENS_FOCUS_DISTANCE)?.let { fd ->
+                        if (fd > 0f) {
+                            lastAutoFocusDistance = fd
+                            if (isManualFocus) lastMFAutoFocusDistance = fd
                         }
-                        Log.d("AF_TRACK", "AutoFocus distance = $focusDistance")
                     }
                 }
             })
 
             previewExtender.setCaptureRequestOption(
-                CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO
+                CaptureRequest.CONTROL_MODE,
+                CaptureRequest.CONTROL_MODE_AUTO
             )
 
             val preview = previewBuilder.setTargetAspectRatio(AspectRatio.RATIO_16_9).build().also {
                 it.surfaceProvider = previewView.surfaceProvider
             }
 
-            // Use a more compatible quality selector with fallback options
             val qualitySelector = QualitySelector.fromOrderedList(
                 listOf(Quality.FHD, Quality.HD, Quality.SD),
                 FallbackStrategy.lowerQualityOrHigherThan(Quality.SD)
             )
 
-            val recorder = Recorder.Builder()
-                .setQualitySelector(qualitySelector)
-                .build()
-
+            val recorder = Recorder.Builder().setQualitySelector(qualitySelector).build()
             videoCapture = VideoCapture.withOutput(recorder)
+
             cameraProvider.unbindAll()
-            camera = cameraProvider.bindToLifecycle(
-                this, cameraSelector, preview, videoCapture
-            )
+            camera = cameraProvider.bindToLifecycle(this, cameraSelector, preview, videoCapture)
             cameraControl = camera!!.cameraControl
             cameraInfo = camera!!.cameraInfo
 
             cameraControl.setZoomRatio(1.2f)
             setupManualFocusRecyclerView()
-
         } catch (e: Exception) {
             Log.e("CameraRecording", "Error binding video use case", e)
             Toast.makeText(this, "Failed to initialize camera: ${e.message}", Toast.LENGTH_LONG)
@@ -929,62 +878,66 @@ class CameraRecordingActivity : ComponentActivity() {
     private fun startVideoRecording() {
         isRecording = true
         li_Message.visibility = View.GONE
-        // angleLineView.visibility = View.GONE // hide line when recording starts
-        val videoCapture = this.videoCapture ?: return
+        val vc = this.videoCapture
 
-        val name = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", Locale.US)
-            .format(System.currentTimeMillis())
-        val outDir = cacheVideoDir()
-        if (!outDir.exists()) outDir.mkdirs()
+        if (isSlowMo) {
+            // Guard: if controller hasn’t finished binding yet, bail
+            if (!controller.isReady()) {  // ADD: expose isReady() in your controller
+                isRecording = false
+                Toast.makeText(this, "Slow-mo not ready yet", Toast.LENGTH_SHORT).show()
+                return
+            }
+            controller.startRecording(
+                onStarted = {
+                    isRecording = true
+                },
+                onSaved = { uri -> playBack(uri) },
+                onError = { e ->
+                    isRecording = false
+                    Log.e("SlowMoTest", "Recording error", e)
+                    Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            )
+            if (isSoundOn) mediaSounds.play(MediaActionSound.START_VIDEO_RECORDING)
+            pausedTime = 0L
+            startTimer()
+            return
+        }
 
-        val outFile = File(outDir, "$name.mp4")
-
+        // Normal recording
+        val name =
+            SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", Locale.US).format(System.currentTimeMillis())
+        val outFile = File(cacheVideoDir(), "$name.mp4").apply { parentFile?.mkdirs() }
         val fileOutput = FileOutputOptions.Builder(outFile).build()
 
+        vc ?: return
         pausedTime = 0L
-        recording = videoCapture.output
+        recording = vc.output
             .prepareRecording(this, fileOutput)
             .withAudioEnabled()
             .start(ContextCompat.getMainExecutor(this)) { recordEvent ->
                 when (recordEvent) {
                     is VideoRecordEvent.Start -> {
-                        // NEW: fresh session → reset baseline then start timer
                         pausedTime = 0L
                         startTimer()
                         isRecording = true
                         isPaused = false
-                        if (isSoundOn) {
-                            // Play system start sound when recording actually starts
-                            mediaSounds.play(MediaActionSound.START_VIDEO_RECORDING)
-                        }
+                        if (isSoundOn) mediaSounds.play(MediaActionSound.START_VIDEO_RECORDING)
                     }
 
-                    // NEW: reflect native pause (in case it’s triggered elsewhere)
-                    is VideoRecordEvent.Pause -> {
-                        if (!isPaused) pauseVideoRecording()
-                    }
-
-                    // NEW: reflect native resume
-                    is VideoRecordEvent.Resume -> {
-                        if (isPaused) resumeVideoRecording()
-                    }
-
+                    is VideoRecordEvent.Pause -> if (!isPaused) pauseVideoRecording()
+                    is VideoRecordEvent.Resume -> if (isPaused) resumeVideoRecording()
                     is VideoRecordEvent.Finalize -> {
                         stopTimer()
                         recording = null
                         isRecording = false
                         isPaused = false
-                        if (isSoundOn) {
-                            // Play system start sound when recording actually starts
-                            mediaSounds.play(MediaActionSound.STOP_VIDEO_RECORDING)
-                        }
+                        if (isSoundOn) mediaSounds.play(MediaActionSound.STOP_VIDEO_RECORDING)
                         if (!recordEvent.hasError()) {
                             val cacheUri = getCacheFileProviderUri(outFile)
-                            Log.d("VideoCompressor", "Orignal video saved at: $cacheUri")
-                            Log.d("VideoCompressor", "Orignal video size: ${getFileSize(cacheUri)}")
-                            lifecycleScope.launch {
-                                compressVideo(cacheUri) // your existing compressor flow
-                            }
+                            Log.d("VideoCompressor", "Original video saved at: $cacheUri")
+                            Log.d("VideoCompressor", "Original size: ${getFileSize(cacheUri)}")
+                            lifecycleScope.launch { compressVideo(cacheUri) }
                         } else {
                             if (outFile.exists()) outFile.delete()
                             setResult(RESULT_CANCELED)
@@ -997,64 +950,23 @@ class CameraRecordingActivity : ComponentActivity() {
     }
 
     fun pickVideo() {
-
-        // Example: pick a video from gallery
-        val intent = Intent(Intent.ACTION_PICK).apply {
-            type = "video/*"
-        }
+        val intent = Intent(Intent.ACTION_PICK).apply { type = "video/*" }
         startActivityForResult(intent, 1)
     }
 
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-
         if (requestCode == 1 && resultCode == RESULT_OK) {
             val inputUri = data?.data ?: return
-            Log.d("VideoCompressor", "Orignal video saved at: $inputUri")
-            Log.d(
-                "VideoCompressor", "Orignal video size: ${
-                    getFileSize(
-                        inputUri
-                    )
-                }"
-            )
-            lifecycleScope.launch {
-                compressVideo(inputUri)
-                // use result
-            }
-
+            Log.d("VideoCompressor", "Original video: $inputUri  size=${getFileSize(inputUri)}")
+            lifecycleScope.launch { compressVideo(inputUri) }
         }
     }
 
-    private fun cacheVideoDir(): File {
-        return externalCacheDir ?: cacheDir
-    }
-
-    private fun getCacheFileProviderUri(file: File): Uri {
-        return FileProvider.getUriForFile(this, "${packageName}.fileprovider", file)
-    }
-
-
-    private fun moveCacheVideoToGallery(src: File) {
-        val resolver = contentResolver
-        val name = src.nameWithoutExtension
-        val values = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
-            put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
-            put(MediaStore.MediaColumns.RELATIVE_PATH, "DCIM/CameraXVideos")
-            put(MediaStore.Video.Media.IS_PENDING, 1)
-        }
-        val uri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values) ?: return
-        resolver.openOutputStream(uri)?.use { out ->
-            src.inputStream().use { it.copyTo(out) }
-        }
-        values.clear()
-        values.put(MediaStore.Video.Media.IS_PENDING, 0)
-        resolver.update(uri, values, null, null)
-        // Optionally delete the cache copy after promoting
-        // src.delete()
-    }
+    private fun cacheVideoDir(): File = externalCacheDir ?: cacheDir
+    private fun getCacheFileProviderUri(file: File): Uri =
+        FileProvider.getUriForFile(this, "${packageName}.fileprovider", file)
 
     private fun pruneOldCacheVideos(days: Int = 7) {
         val dir = cacheVideoDir()
@@ -1068,41 +980,33 @@ class CameraRecordingActivity : ComponentActivity() {
         super.onStop()
         if (isRecording) {
             stopVideoRecording()
-            Toast.makeText(
-                this, "Recording stopped due to app going to background", Toast.LENGTH_SHORT
-            ).show()
+            Toast.makeText(this, "Recording stopped (app backgrounded)", Toast.LENGTH_SHORT).show()
             isRecording = false
             isPaused = false
         }
     }
 
-    fun getFileSize(uri: Uri): String {
-        return try {
-            val fileDescriptor =
-                contentResolver.openFileDescriptor(uri, "r") ?: return "0 B"
-            val size = fileDescriptor.statSize
-            fileDescriptor.close()
-
+    fun getFileSize(uri: Uri): String = try {
+        contentResolver.openFileDescriptor(uri, "r")?.use { fd ->
+            val size = fd.statSize
             when {
                 size < 1024 -> "$size B"
-                size < 1024 * 1024 -> String.format("%.2f KB", size / 1024f)
-                else -> String.format("%.2f MB", size / (1024f * 1024f))
+                size < 1024 * 1024 -> String.format(Locale.US, "%.2f KB", size / 1024f)
+                else -> String.format(Locale.US, "%.2f MB", size / (1024f * 1024f))
             }
-        } catch (e: Exception) {
-            "Unknown"
-        }
+        } ?: "0 B"
+    } catch (_: Exception) {
+        "Unknown"
     }
 
-    // CHANGED: ensure pause flags & UI reset
     private fun stopVideoRecording() {
         isRecording = false
-        isPaused = false // NEW
+        isPaused = false
         angleLineView.visibility = View.VISIBLE
         recording?.stop()
         recording = null
-        videobuttonRecording.alpha = 1.0f // NEW (if you dim during pause)
+        videobuttonRecording.alpha = 1.0f
     }
-
 
     private fun startTimer() {
         startTime = SystemClock.elapsedRealtime() - pausedTime
@@ -1114,7 +1018,7 @@ class CameraRecordingActivity : ComponentActivity() {
                 val seconds = elapsed % 60
                 timerView.isTimerRunning = true
                 timerView.timerText =
-                    String.format("%02d:%02d:%02d", hours, minutes, seconds)
+                    String.format(Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
                 delay(1000)
             }
         }
@@ -1136,15 +1040,10 @@ class CameraRecordingActivity : ComponentActivity() {
             val focalLengths = camera2Info.getCameraCharacteristic(
                 CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS
             ) ?: continue
-
             val focal = focalLengths.firstOrNull() ?: continue
             if (focal in 20f..70f) {
-                val facing = camera2Info.getCameraCharacteristic(
-                    CameraCharacteristics.LENS_FACING
-                )
-                return facing?.let {
-                    CameraSelector.Builder().requireLensFacing(it).build()
-                }
+                val facing = camera2Info.getCameraCharacteristic(CameraCharacteristics.LENS_FACING)
+                return facing?.let { CameraSelector.Builder().requireLensFacing(it).build() }
             }
         }
         return CameraSelector.DEFAULT_BACK_CAMERA
@@ -1152,72 +1051,45 @@ class CameraRecordingActivity : ComponentActivity() {
 
     @OptIn(ExperimentalCamera2Interop::class)
     fun setupManualFocusRecyclerView() {
-
         val camera2Info = Camera2CameraInfo.from(camera!!.cameraInfo)
         minFocusDistance = camera2Info.getCameraCharacteristic(
             CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE
         ) ?: 0f
 
-        Log.d("ManualFocusCheck", "Min focus distance: $minFocusDistance")
-
-        if (minFocusDistance == null || minFocusDistance == 0f) {
-            Log.w("ManualFocusCheck", "Manual focus is NOT supported on this device.")
-//            focusScaleView.visibility = GONE
-//            Toast.makeText(this, "Manual focus not supported", Toast.LENGTH_SHORT).show()
+        if (minFocusDistance == 0f) {
+            Log.w("ManualFocus", "Manual focus NOT supported.")
             return
-        } else {
-            Log.i(
-                "ManualFocusCheck",
-                "Manual focus IS supported. Min distance: $minFocusDistance"
-            )
         }
 
         val camera2Control = Camera2CameraControl.from(camera!!.cameraControl)
-
-
         focusScaleView.onFocusChanged = { newFocus ->
             try {
-                // Map correctly: 0 = closest, 1 = infinity
                 val focusDistance = (1f - newFocus) * minFocusDistance
-                Log.d("FocusSet", "Slider=$newFocus → FocusDistance=$focusDistance")
                 lastSelectedFocus = newFocus
                 val options = CaptureRequestOptions.Builder()
                     .setCaptureRequestOption(
                         CaptureRequest.CONTROL_AF_MODE,
                         CaptureRequest.CONTROL_AF_MODE_OFF
                     )
-                    .setCaptureRequestOption(
-                        CaptureRequest.LENS_FOCUS_DISTANCE,
-                        focusDistance
-                    )
+                    .setCaptureRequestOption(CaptureRequest.LENS_FOCUS_DISTANCE, focusDistance)
                     .build()
-
                 camera2Control.setCaptureRequestOptions(options)
-
                 vibrateOnce()
             } catch (e: Exception) {
                 Log.e("ManualFocus", "Failed to set manual focus", e)
-                Toast.makeText(
-                    this,
-                    "Error setting focus: ${e.message}",
-                    Toast.LENGTH_SHORT
-                ).show()
+                Toast.makeText(this, "Error setting focus: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
-//    }
     }
 
     private fun smoothZoom(from: Float, to: Float) {
-        if (from == to) return  // no change, ignore
-
-        zoomAnimator?.cancel()  // stop previous animation if still running
-
+        if (from == to) return
+        zoomAnimator?.cancel()
         zoomAnimator = ValueAnimator.ofFloat(from, to).apply {
-            // ValueAnimator.setDuration = 150
             addUpdateListener {
-                val zoom = it.animatedValue as Float
-                camera?.cameraControl?.setZoomRatio(zoom)
-                currentZoomRatio = zoom
+                val z = it.animatedValue as Float
+                camera?.cameraControl?.setZoomRatio(z)
+                currentZoomRatio = z
             }
             start()
         }
@@ -1225,149 +1097,98 @@ class CameraRecordingActivity : ComponentActivity() {
 
     private fun vibrateOnce() {
         val vibrator = getSystemService<Vibrator>() ?: return
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val pattern =
-                longArrayOf(0L, 60L)            // just one vibrate: wait 0ms, vibrate 60ms
-            val amplitudes = intArrayOf(0, 10)           // light vibration
-
-            val effect = if (vibrator.hasAmplitudeControl()) {
-                VibrationEffect.createWaveform(pattern, amplitudes, /*repeat*/ -1)
-            } else {
-                // fallback, only timing:
-                VibrationEffect.createWaveform(pattern, /*repeat*/ -1)
-            }
+            val pattern = longArrayOf(0L, 60L)
+            val amplitudes = intArrayOf(0, 10)
+            val effect = if (vibrator.hasAmplitudeControl())
+                VibrationEffect.createWaveform(pattern, amplitudes, -1)
+            else VibrationEffect.createWaveform(pattern, -1)
             vibrator.vibrate(effect)
-        } else {
-            vibrator.vibrate(60L)
-        }
+        } else vibrator.vibrate(60L)
     }
 
     private fun CameraRecordingActivity.onSwipeDown() {
         zoomRulerView.visibility = VISIBLE
-        // No more postDelayed here
         zoomControlLayout.visibility = GONE
     }
 
     override fun onBackPressed() {
-        // Stop recording if currently recording
         if (isRecording) {
             stopVideoRecording()
             stopTimer()
             isRecording = false
             isPaused = false
         }
-
-        // Set result as cancelled and finish
         setResult(RESULT_CANCELED)
         finish()
     }
 
-    fun getPath(context: Context, uri: Uri): String? {
-        return when (uri.scheme) {
-            "file" -> uri.path
-            "content" -> {
-                val cursor = context.contentResolver.query(uri, null, null, null, null)
-                cursor?.use {
-                    val index = it.getColumnIndexOrThrow("_data")
-                    if (it.moveToFirst()) {
-                        return it.getString(index)
-                    }
-                }
-                null
+    fun getPath(context: Context, uri: Uri): String? = when (uri.scheme) {
+        "file" -> uri.path
+        "content" -> {
+            val cursor = context.contentResolver.query(uri, null, null, null, null)
+            cursor?.use {
+                val index = it.getColumnIndexOrThrow("_data")
+                if (it.moveToFirst()) it.getString(index) else null
             }
-
-            else -> null
         }
+
+        else -> null
     }
 
+    @OptIn(UnstableApi::class)
     private suspend fun compressVideo(uri: Uri) {
-        // Example inside a coroutine scope (e.g., ViewModel or lifecycleScope)
         val outputUri = compressVideoToCacheUri(this, uri)
         if (outputUri != null) {
-            // use the compressed video Uri
-            Log.d("VideoCompressor", "Compressed video saved at: $outputUri")
-            Log.d("VideoCompressor", "Compressed video size: ${getFileSize(outputUri)}")
-            val videoView = VideoView(this)
-            videoView.setVideoURI(outputUri)
-            videoView.start()
-            setContentView(videoView)
+            Log.d("VideoCompressor", "Compressed at: $outputUri size=${getFileSize(outputUri)}")
+            playBack(uri)
         } else {
             Log.e("VideoCompressor", "Compression failed")
-            // handle failure
         }
-
     }
 
     @OptIn(UnstableApi::class)
     suspend fun compressVideoToCacheUri(
         context: Context,
         inputUri: Uri,
-        targetBitrate: Int = 4_000_000, // ~4 Mbps default
+        targetBitrate: Int = 4_000_000,
         preferHevc: Boolean = true
     ): Uri? = kotlinx.coroutines.suspendCancellableCoroutine { cont ->
-
         val outputFile = File(context.cacheDir, "compressed_${System.currentTimeMillis()}.mp4")
         val outputPath = outputFile.absolutePath
         val mediaItem = MediaItem.fromUri(inputUri)
 
-        val videoSettings = VideoEncoderSettings.Builder()
-            .setBitrate(targetBitrate)
-            .build()
-
+        val videoSettings = VideoEncoderSettings.Builder().setBitrate(targetBitrate).build()
         val encoderFactory = DefaultEncoderFactory.Builder(context)
             .setRequestedVideoEncoderSettings(videoSettings)
             .setEnableFallback(true)
             .build()
 
-        // CHANGE: ensure dialog work happens on Main
         val act = context as? Activity
-        if (act != null && !act.isFinishing && !act.isDestroyed) {
-            progressDialog.show()
-        }
+        if (act != null && !act.isFinishing && !act.isDestroyed) progressDialog.show()
+
         var finished = false
         fun finishWith(result: Uri?) {
             if (finished) return
             finished = true
-            // Dismiss dialog on main
-            android.os.Handler(Looper.getMainLooper()).post {
-                try {
-                    progressDialog.dismiss()
-                } catch (_: Throwable) {
-                }
-            }
+            Handler(Looper.getMainLooper()).post { runCatching { progressDialog.dismiss() } }
             if (cont.isActive) cont.resume(result, onCancellation = null)
         }
 
-        // CHANGE: support retry from HEVC -> AVC without dismissing early
         fun startWith(mime: String) {
             val transformer = Transformer.Builder(context)
                 .setEncoderFactory(encoderFactory)
                 .setVideoMimeType(mime)
                 .build()
 
-            // Cancel transformer if coroutine is cancelled
             cont.invokeOnCancellation {
-                try {
-                    transformer.cancel()
-                } catch (_: Throwable) { /* no-op */
-                }
-                // Best effort cleanup
+                runCatching { transformer.cancel() }
                 outputFile.delete()
             }
 
             transformer.addListener(object : Transformer.Listener {
-                override fun onCompleted(
-                    composition: Composition,
-                    exportResult: ExportResult
-                ) {
-                    // Dismiss dialog on main
-                    android.os.Handler(Looper.getMainLooper()).post {
-                        try {
-                            progressDialog.dismiss()
-                        } catch (_: Throwable) {
-                        }
-                    }
+                override fun onCompleted(composition: Composition, exportResult: ExportResult) {
+                    Handler(Looper.getMainLooper()).post { runCatching { progressDialog.dismiss() } }
                     finishWith(Uri.fromFile(outputFile))
                 }
 
@@ -1378,7 +1199,6 @@ class CameraRecordingActivity : ComponentActivity() {
                 ) {
                     progressDialog.dismiss()
                     if (mime == MimeTypes.VIDEO_H265) {
-                        // Retry with AVC once
                         startWith(MimeTypes.VIDEO_H264)
                     } else {
                         outputFile.delete()
@@ -1387,16 +1207,12 @@ class CameraRecordingActivity : ComponentActivity() {
                 }
             })
 
-            // Start transform
             try {
                 transformer.start(mediaItem, outputPath)
-            } catch (t: Throwable) {
-                // Synchronous failure (rare but possible)
-                if (mime == MimeTypes.VIDEO_H265) {
-                    startWith(MimeTypes.VIDEO_H264)
-                } else {
-                    outputFile.delete()
-                    finishWith(null)
+            } catch (_: Throwable) {
+                if (mime == MimeTypes.VIDEO_H265) startWith(MimeTypes.VIDEO_H264)
+                else {
+                    outputFile.delete(); finishWith(null)
                 }
             }
         }
@@ -1404,69 +1220,51 @@ class CameraRecordingActivity : ComponentActivity() {
         startWith(if (preferHevc) MimeTypes.VIDEO_H265 else MimeTypes.VIDEO_H264)
     }
 
-    // Create a simple indeterminate progress dialog
-    private fun showProgressDialog(context: Context): AlertDialog {
-        val progressBar = ProgressBar(context).apply {
-            isIndeterminate = true
-        }
-
-        return showPrettyProgressDialog(this)
-    }
-
-    fun showPrettyProgressDialog(
-        context: android.content.Context,
+    private fun showPrettyProgressDialog(
+        context: Context,
         title: String = "Compressing Video",
         message: String = "Please wait while your video is being processed...",
         cancelable: Boolean = false
     ): AlertDialog {
         val themedCtx = ContextThemeWrapper(
             context,
-            com.google.android.material.R.style.Theme_Material3_DayNight // <- ensures M3 attrs exist
+            com.google.android.material.R.style.Theme_Material3_DayNight
         )
-
-        val view = LayoutInflater.from(themedCtx)
-            .inflate(R.layout.dialog_progress_pretty, null, false)
+        val view =
+            LayoutInflater.from(themedCtx).inflate(R.layout.dialog_progress_pretty, null, false)
         view.findViewById<TextView>(R.id.tvTitle).text = title
         view.findViewById<TextView>(R.id.tvMessage).text = message
-
-        val dialog = MaterialAlertDialogBuilder(themedCtx, R.style.PrettyDialogTheme)
+        return MaterialAlertDialogBuilder(themedCtx, R.style.PrettyDialogTheme)
             .setView(view)
             .setCancelable(cancelable)
             .create()
-
-        dialog.setCanceledOnTouchOutside(false)
-        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-        //dialog.show()
-        return dialog
+            .apply {
+                setCanceledOnTouchOutside(false)
+                window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            }
     }
 
     private fun updateUiForMode() {
-        //modeToggle.text = if (captureMode == CaptureMode.VIDEO) "VIDEO" else "PHOTO"
-        // Show/Hide timer & stop button only in VIDEO mode
-        // stopButton.visibility =
-        if (captureMode == CaptureMode.VIDEO && isRecording) VISIBLE else GONE
-        timerView.visibility =
-            if (captureMode == CaptureMode.VIDEO) VISIBLE else GONE
-
-        // Change main icon (optional): red circle for video, camera icon for photo
+        // EXISTING
+        timerView.visibility = if (captureMode == CaptureMode.VIDEO) VISIBLE else GONE
         if (captureMode == CaptureMode.PHOTO) {
             videobuttonRecording.setBackgroundResource(R.drawable.circle_button_bg)
-            videobuttonRecording.setImageResource(R.drawable.ic_camera) // add a camera icon resource
+            videobuttonRecording.setImageResource(R.drawable.ic_camera)
             timerView.isTimerRunning = false
         } else {
             videobuttonRecording.setBackgroundResource(R.drawable.circle_button_bg)
             videobuttonRecording.setImageResource(R.drawable.recordicon)
         }
+
+        // ADD: in slow-mo, hide/disable manual focus and any CameraX-only toggles
+      //  manualfocus.isEnabled = !isSlowMo
+      //  manualfocus.visibility = if (isSlowMo) GONE else VISIBLE
+        flashBtn.isEnabled = !isSlowMo
     }
 
+
     private fun bindUseCasesForCurrentMode() {
-        if (!::cameraProvider.isInitialized) return
-        cameraProvider.unbindAll()
-        if (captureMode == CaptureMode.PHOTO) {
-            bindPhotoUseCase()
-        } else {
-            bindVideoUseCase() // your existing method
-        }
+        rebindForCurrentMode()
     }
 
     @OptIn(ExperimentalCamera2Interop::class)
@@ -1474,32 +1272,31 @@ class CameraRecordingActivity : ComponentActivity() {
         try {
             val previewBuilder = Preview.Builder()
             val previewExt = Camera2Interop.Extender(previewBuilder)
-
             if (isManualFocus) {
                 previewExt.setCaptureRequestOption(
-                    CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF
+                    CaptureRequest.CONTROL_AF_MODE,
+                    CaptureRequest.CONTROL_AF_MODE_OFF
                 )
             } else {
                 previewExt.setCaptureRequestOption(
-                    CaptureRequest.CONTROL_AF_MODE, CONTROL_AF_MODE_CONTINUOUS_VIDEO
+                    CaptureRequest.CONTROL_AF_MODE,
+                    CONTROL_AF_MODE_CONTINUOUS_VIDEO
                 )
             }
             previewExt.setCaptureRequestOption(
-                CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO
+                CaptureRequest.CONTROL_MODE,
+                CaptureRequest.CONTROL_MODE_AUTO
             )
 
-            val preview = previewBuilder
-                .setTargetAspectRatio(AspectRatio.RATIO_16_9)
+            val preview = previewBuilder.setTargetAspectRatio(AspectRatio.RATIO_16_9)
                 .build().also { it.surfaceProvider = previewView.surfaceProvider }
 
-            imageCapture = androidx.camera.core.ImageCapture.Builder()
-                .setCaptureMode(androidx.camera.core.ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+            imageCapture = ImageCapture.Builder()
+                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
                 .setTargetAspectRatio(AspectRatio.RATIO_16_9)
                 .build()
 
-            camera = cameraProvider.bindToLifecycle(
-                this, cameraSelector, preview, imageCapture
-            )
+            camera = cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageCapture)
             cameraControl = camera!!.cameraControl
             cameraInfo = camera!!.cameraInfo
             cameraControl.setZoomRatio(1.2f)
@@ -1513,44 +1310,24 @@ class CameraRecordingActivity : ComponentActivity() {
 
     private fun takePhoto() {
         val imageCapture = this.imageCapture ?: return
-
-        // Pick a cache directory
         val outDir = externalCacheDir ?: cacheDir
         if (!outDir.exists()) outDir.mkdirs()
-
-        val name = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", Locale.US)
-            .format(System.currentTimeMillis())
+        val name =
+            SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", Locale.US).format(System.currentTimeMillis())
         val outFile = File(outDir, "IMG_$name.jpg")
-
         val outputOptions = ImageCapture.OutputFileOptions.Builder(outFile).build()
-
         imageCapture.takePicture(
             outputOptions,
             ContextCompat.getMainExecutor(this),
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                    // If you only need it inside your app, you can use Uri.fromFile
-                    // val cacheUri = Uri.fromFile(outFile)
-                    if (isSoundOn) {
-                        shutter.play(MediaActionSound.SHUTTER_CLICK)   // play on success
-                    }
-                    // Recommended: use FileProvider so you can share it if needed
+                    if (isSoundOn) shutter.play(MediaActionSound.SHUTTER_CLICK)
                     val cacheUri = FileProvider.getUriForFile(
                         this@CameraRecordingActivity,
                         "${packageName}.fileprovider",
                         outFile
                     )
-
-                    Log.d("CameraX", "Photo saved to cache: $cacheUri")
-//                    Toast.makeText(
-//                        this@CameraRecordingActivity,
-//                        "Saved to cache: $cacheUri", Toast.LENGTH_SHORT
-//                    ).show()
-                    lifecycleScope.launch {
-                        delay(300)
-                        cropImage(cacheUri)
-                    }
-                    // use cacheUri (display, share, upload, etc.)
+                    lifecycleScope.launch { delay(300); cropImage(cacheUri) }
                 }
 
                 override fun onError(exc: ImageCaptureException) {
@@ -1560,27 +1337,19 @@ class CameraRecordingActivity : ComponentActivity() {
         )
     }
 
-    // NEW: pause recording natively + freeze timer baseline
     private fun pauseVideoRecording() {
         recording?.pause()
         pausedTime = SystemClock.elapsedRealtime() - startTime
         stopTimer()
         isPaused = true
-
-        // (Optional) UI cues — tweak as you like:
         videoPauseResume.setBackgroundResource(R.drawable.play_icon)
-        // videobuttonRecording.setImageResource(R.drawable.ic_play) // if you have a play icon
     }
 
-    // NEW: resume recording natively + continue timer
     private fun resumeVideoRecording() {
         recording?.resume()
-        resumeTimer()              // your resumeTimer -> startTimer() uses pausedTime baseline
+        resumeTimer()
         isPaused = false
-
-        // (Optional) UI cues
         videoPauseResume.setBackgroundResource(R.drawable.pause)
-        // videobuttonRecording.setImageResource(R.drawable.recordicon)
     }
 
     fun cropImage(imageUri: Uri) {
@@ -1589,150 +1358,56 @@ class CameraRecordingActivity : ComponentActivity() {
         val imageView = ImageView(this)
         imageView.setImageURI(leftUri)
         setContentView(imageView)
-
-
     }
 
-//    private fun saveVideoToGallery(
-//        context: Context,
-//        sourceUri: Uri,                 // the compressed cache Uri you already return
-//        albumName: String = "OPIC"     // folder under Movies/
-//    ): Uri? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-//        saveToGalleryQPlus(context, sourceUri, albumName)
-//    } else {
-//        saveToGalleryLegacy(context, sourceUri, albumName)
-//    }
-//
-//    @RequiresApi(Build.VERSION_CODES.Q)
-//    private fun saveToGalleryQPlus(
-//        context: Context,
-//        sourceUri: Uri,
-//        albumName: String
-//    ): Uri? {
-//        val resolver = context.contentResolver
-//        val collection = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-//        val displayName = "VID_${System.currentTimeMillis()}.mp4"
-//
-//        val values = ContentValues().apply {
-//            put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
-//            put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
-//            put(MediaStore.MediaColumns.RELATIVE_PATH, "Movies/$albumName")
-//            put(MediaStore.Video.Media.IS_PENDING, 1)
-//            put(MediaStore.MediaColumns.DATE_ADDED, System.currentTimeMillis() / 1000)
-//            put(MediaStore.MediaColumns.DATE_MODIFIED, System.currentTimeMillis() / 1000)
-//        }
-//
-//        val destUri = resolver.insert(collection, values) ?: return null
-//        try {
-//            resolver.openOutputStream(destUri)?.use { out ->
-//                resolver.openInputStream(sourceUri)?.use { inp ->
-//                    inp.copyTo(out)
-//                }
-//            }
-//            // Mark as finalized
-//            values.clear()
-//            values.put(MediaStore.Video.Media.IS_PENDING, 0)
-//            resolver.update(destUri, values, null, null)
-//            return destUri
-//        } catch (e: Exception) {
-//            // Cleanup on failure
-//            resolver.delete(destUri, null, null)
-//            return null
-//        }
-//    }
-//
-//    @Suppress("DEPRECATION")
-//    private fun saveToGalleryLegacy(
-//        context: Context,
-//        sourceUri: Uri,
-//        albumName: String
-//    ): Uri? {
-//        val movies = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)
-//        val album = File(movies, albumName).apply { if (!exists()) mkdirs() }
-//        val destFile = File(album, "VID_${System.currentTimeMillis()}.mp4")
-//
-//        return try {
-//            context.contentResolver.openInputStream(sourceUri)?.use { inp ->
-//                FileOutputStream(destFile).use { out -> inp.copyTo(out) }
-//            }
-//            // Tell MediaScanner
-//            MediaScannerConnection.scanFile(
-//                context,
-//                arrayOf(destFile.absolutePath),
-//                arrayOf("video/mp4"),
-//            ) { _, scannedUri -> /* scannedUri is the gallery Uri */ }
-//
-//            // Build a Uri for consistency
-//            Uri.fromFile(destFile)
-//        } catch (_: Exception) {
-//            null
-//        }
-//    }
-//
-//    @OptIn(UnstableApi::class)
-//    fun compressVideoToCacheUri(
-//        context: Context,
-//        inputUri: Uri,
-//        targetBitrate: Int = 4_000_000,
-//        preferHevc: Boolean = true,
-//        albumName: String = "OPIC",              // <-- ADD: desired gallery subfolder under Movies/
-//        onComplete: (Uri?) -> Unit                // returns the *Gallery* Uri now
-//    ) {
-//        val outputFile = File(context.cacheDir, "compressed_${System.currentTimeMillis()}.mp4")
-//        val outputPath = outputFile.absolutePath
-//        val mediaItem = MediaItem.fromUri(inputUri)
-//
-//        val videoSettings = VideoEncoderSettings.Builder()
-//            .setBitrate(targetBitrate)
-//            .build()
-//
-//        val encoderFactory = DefaultEncoderFactory.Builder(context)
-//            .setRequestedVideoEncoderSettings(videoSettings)
-//            .setEnableFallback(true)
-//            .build()
-//        // Show dialog before starting
-//       // progressDialog.show()
-//        fun startWith(mime: String) {
-//            val transformer = Transformer.Builder(context)
-//                .setEncoderFactory(encoderFactory)
-//                .setVideoMimeType(mime)
-//                .build()
-//
-//            transformer.addListener(object : Transformer.Listener {
-//                override fun onCompleted(composition: Composition, exportResult: ExportResult) {
-//                    // -- ADD: Save compressed cache file to Gallery (MediaStore)
-//                    val cacheUri = Uri.fromFile(outputFile)
-//                    val galleryUri = saveVideoToGallery(context, cacheUri, albumName)
-////                    try {
-////                        progressDialog.dismiss()
-////                    } catch (e: Exception) {
-////                        e.printStackTrace()
-////                    }
-//
-//                    // Toast.makeText(context, "Video saved to Movie/OPIC", Toast.LENGTH_SHORT).show()
-//                    // Optionally remove the cache file after copying:
-//                    runCatching { outputFile.delete() }
-//                    onComplete(galleryUri)
-//                }
-//
-//                override fun onError(
-//                    composition: Composition,
-//                    exportResult: ExportResult,
-//                    exception: ExportException
-//                ) {
-//                   // progressDialog.dismiss()
-//                    if (mime == MimeTypes.VIDEO_H265) {
-//                        startWith(MimeTypes.VIDEO_H264)
-//                    } else {
-//                        runCatching { outputFile.delete() }
-//                        onComplete(null)
-//                    }
-//                }
-//            })
-//
-//            transformer.start(mediaItem, outputPath)
-//        }
-//
-//        startWith(if (preferHevc) MimeTypes.VIDEO_H265 else MimeTypes.VIDEO_H264)
-//    }
+    private fun initAfterPermissions() {
+        lifecycleScope.launch {
+            options =
+                withContext(Dispatchers.Default) {listBackCameraSlowMoOptions(this@CameraRecordingActivity, 60)}
+            if (options.isEmpty()) {
+                Toast.makeText(
+                    this@CameraRecordingActivity,
+                    "No slow-mo options found",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+            val labels = options.map { it.label }
+            // after you load `options` list
+            val slowMoAdapter = com.example.myapplication.adapters.SlowMoOptionAdapter(
+                this@CameraRecordingActivity,
+                options
+            )
+
+// Use custom row resources
+            spnOptions.adapter = slowMoAdapter
+            spnOptions.setPopupBackgroundResource(R.drawable.bg_dropdown_popup)
+// (Optional) narrow/widen popup to content
+//            spnOptions.dropDownVerticalOffset = 8.dp(this@CameraRecordingActivity)
+//            spnOptions.dropDownWidth = (240 * resources.displayMetrics.density).toInt()
+
+// Enable/disable spinner with your mode:
+            spnOptions.isEnabled = isSlowMo
+
+            spnOptions.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                    if (!isSlowMo) return
+                    val newOpt = options[position]
+                    if (selectedOption === newOpt) return // ADD: no-op if same
+                    selectedOption = newOpt
+                    rebindForCurrentMode()
+                }
+                override fun onNothingSelected(parent: AdapterView<*>?) {}
+            }
+
+            if (options.isNotEmpty()) spnOptions.setSelection(0)
+            rebindForCurrentMode()
+        }
+    }
+
+    // Pretty progress dialog (indeterminate)
+    private fun showProgressDialog(context: Context): AlertDialog = showPrettyProgressDialog(this)
+
+    // dp extension
+    private fun Int.dp(context: Context): Int =
+        (this * context.resources.displayMetrics.density).roundToInt()
 }

@@ -1,0 +1,53 @@
+<!-- res/layout/item_slowmo_dropdown.xml -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:orientation="horizontal"
+    android:minHeight="48dp"
+    android:padding="12dp"
+    android:gravity="center_vertical"
+    android:background="@drawable/bg_dropdown_row_selector"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content">
+
+    <ImageView
+        android:id="@+id/ivIcon"
+        android:layout_width="18dp"
+        android:layout_height="18dp"
+        app:tint="@color/white_80"
+        android:src="@drawable/ic_slowmo" />
+
+    <LinearLayout
+        android:orientation="vertical"
+        android:layout_marginStart="8dp"
+        android:layout_weight="1"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content">
+
+        <TextView
+            android:id="@+id/tvMain"
+            android:text=""
+            android:textStyle="bold"
+            android:textSize="14sp"
+            android:textColor="@color/white"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"/>
+
+        <TextView
+            android:id="@+id/tvSub"
+            android:text=""
+            android:textSize="12sp"
+            android:textColor="@color/white_60"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"/>
+    </LinearLayout>
+
+
+    <ImageView
+        android:id="@+id/ivCheck"
+        android:layout_width="18dp"
+        android:layout_height="18dp"
+        android:src="@drawable/ic_check"
+        android:visibility="gone"
+        android:contentDescription="@string/selected"
+        app:tint="@color/mode_selected" />
+</LinearLayout>
