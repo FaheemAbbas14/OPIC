@@ -102,8 +102,17 @@ class HybridSlowMoController(
         }
     }
 
+    fun enableAutoFocus() {
+        camera2Controller?.enableAutoFocus()
+    }
 
+    fun setManualFocus(distance: Float) {
+        camera2Controller?.setManualFocus(distance)
+    }
 
+    fun setZoomLevel(zoom: Float) {
+        camera2Controller?.setZoomLevel(zoom)
+    }
 
     fun release() {
         ready = false

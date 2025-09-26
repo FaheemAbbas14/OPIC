@@ -291,6 +291,7 @@ class CameraRecordingActivity : ComponentActivity() {
                     zoomValue = ratio
                     cameraControl.setZoomRatio(ratio)
                     currentZoom = ratio
+                    controller.setZoomLevel(ratio)
                     if (ratio == 1.2f) zoomControlAdapter.selectRatio(1.2f)
                 }
             })
@@ -346,6 +347,7 @@ class CameraRecordingActivity : ComponentActivity() {
                     zoomValue = steppedZoom
                 }
                 camera?.cameraControl?.setZoomRatio(steppedZoom)
+                controller.setZoomLevel(steppedZoom)
                 currentZoom = steppedZoom
                 vibrateOnce()
                 zoomControlAdapter.updateSingleZoomStep(newZoom.roundToInt(), newZoom)
@@ -692,7 +694,9 @@ class CameraRecordingActivity : ComponentActivity() {
                 zoombutton.setBackgroundResource(R.drawable.record_button_ring1)
                 zoombutton.setImageResource(R.drawable.zoomwhite)
                 zoombutton.imageTintList = null
+                controller.setManualFocus(lastSelectedFocus)
             } else {
+                controller.enableAutoFocus()
                 enableAutoFocus()
                 focusScaleView.visibility = GONE
                 manualfocus.text = "AF"
@@ -864,6 +868,7 @@ class CameraRecordingActivity : ComponentActivity() {
             cameraInfo = camera!!.cameraInfo
 
             cameraControl.setZoomRatio(1.2f)
+            controller.setZoomLevel(1.2f)
             setupManualFocusRecyclerView()
         } catch (e: Exception) {
             Log.e("CameraRecording", "Error binding video use case", e)
@@ -1075,6 +1080,7 @@ class CameraRecordingActivity : ComponentActivity() {
                     .build()
                 camera2Control.setCaptureRequestOptions(options)
                 vibrateOnce()
+                controller.setManualFocus(focusDistance)
             } catch (e: Exception) {
                 Log.e("ManualFocus", "Failed to set manual focus", e)
                 Toast.makeText(this, "Error setting focus: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -1089,6 +1095,7 @@ class CameraRecordingActivity : ComponentActivity() {
             addUpdateListener {
                 val z = it.animatedValue as Float
                 camera?.cameraControl?.setZoomRatio(z)
+                controller.setZoomLevel(z)
                 currentZoomRatio = z
             }
             start()
@@ -1300,6 +1307,7 @@ class CameraRecordingActivity : ComponentActivity() {
             cameraControl = camera!!.cameraControl
             cameraInfo = camera!!.cameraInfo
             cameraControl.setZoomRatio(1.2f)
+            controller.setZoomLevel(1.2f)
             setupManualFocusRecyclerView()
         } catch (e: Exception) {
             Log.e("CameraRecording", "Error binding photo use case", e)

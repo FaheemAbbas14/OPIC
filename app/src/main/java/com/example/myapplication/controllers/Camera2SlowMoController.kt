@@ -2,12 +2,18 @@ package com.example.myapplication.controllers
 
 import android.Manifest
 import android.content.Context
+import android.graphics.Rect
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.*
+import android.hardware.camera2.CameraConstrainedHighSpeedCaptureSession
+import android.hardware.camera2.CameraDevice
+import android.hardware.camera2.CameraManager
+import android.hardware.camera2.CaptureRequest
 import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Handler
 import android.os.HandlerThread
+import android.util.Log
 import android.util.Range
 import android.util.Size
 import android.view.Surface
@@ -37,7 +43,8 @@ class Camera2SlowMoController(
     private var outputFile: File? = null
 
     private var option: SlowMoOption? = null
-    @Volatile private var ready = false
+    @Volatile
+    private var ready = false
     fun isReady() = ready
 
     private var deviceClosedLatch: CountDownLatch? = null
@@ -48,7 +55,7 @@ class Camera2SlowMoController(
 
     private var aeCompRange: Range<Int>? = null
     private var currentEvSteps: Int = 0
-    var manager:CameraManager?=null
+    var manager: CameraManager? = null
     var onTooDark: (() -> Unit)? = null
 
     fun start() {
@@ -119,7 +126,9 @@ class Camera2SlowMoController(
                 st.setDefaultBufferSize(size.width, size.height)
                 return Surface(st)
             }
-            try { Thread.sleep(20) } catch (_: InterruptedException) {}
+            try {
+                Thread.sleep(20)
+            } catch (_: InterruptedException) {}
         }
         return null
     }
@@ -127,6 +136,13 @@ class Camera2SlowMoController(
     private fun clampEv(ev: Int): Int {
         val r = aeCompRange ?: return 0
         return ev.coerceIn(r.lower, r.upper)
+    }
+
+    private fun getSupportedHighSpeedRange(opt: SlowMoOption): Range<Int>? {
+        val chars = manager?.getCameraCharacteristics(opt.cameraId) ?: return null
+        val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return null
+        val supportedRanges = map.getHighSpeedVideoFpsRangesFor(opt.size)
+        return supportedRanges.firstOrNull { it.upper == opt.fpsRange.upper } ?: supportedRanges.firstOrNull()
     }
 
     private fun configurePreview(opt: SlowMoOption, onError: (Throwable) -> Unit = {}) {
@@ -145,14 +161,11 @@ class Camera2SlowMoController(
                                 set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
                                 set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
                                 set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
-//                                aeCompRange?.let {
-//                                    set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, clampEv(currentEvSteps))
-//                                }
                                 val chars = manager?.getCameraCharacteristics(opt.cameraId)
                                 val aeRange = chars?.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE)
-                               set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, aeRange?.upper)
-                                set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range(30, 120))
-                                // Flash/torch OFF intentionally
+                                set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, aeRange?.upper)
+                                val fpsRange = getSupportedHighSpeedRange(opt)
+                                if (fpsRange != null) set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, fpsRange)
                                 set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_OFF)
                             }
                             val hs = session as CameraConstrainedHighSpeedCaptureSession
@@ -196,7 +209,6 @@ class Camera2SlowMoController(
         }
 
         recorderSurface = mediaRecorder!!.surface
-
         closeSessionSync()
 
         dev.createConstrainedHighSpeedCaptureSession(
@@ -211,11 +223,11 @@ class Camera2SlowMoController(
                             set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
                             set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
                             set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
-                           // aeCompRange?.let { set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, clampEv(currentEvSteps)) }
                             val chars = manager?.getCameraCharacteristics(opt.cameraId)
                             val aeRange = chars?.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE)
                             set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, aeRange?.upper)
-                            set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range(30, 120))
+                            val fpsRange = getSupportedHighSpeedRange(opt)
+                            if (fpsRange != null) set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, fpsRange)
                             set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_OFF)
                         }
                         val hs = session as CameraConstrainedHighSpeedCaptureSession
@@ -286,5 +298,85 @@ class Camera2SlowMoController(
         val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val dir = context.getExternalFilesDir(null) ?: context.filesDir
         return File(dir, "SLOWMO_${ts}.mp4")
+    }
+
+    fun enableAutoFocus() {
+        val dev = cameraDevice ?: return
+        val session = captureSession ?: return
+        val opt = option ?: return
+
+        try {
+            val builder = dev.createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
+                if (previewSurface != null) addTarget(previewSurface!!)
+                if (recorderSurface != null) addTarget(recorderSurface!!)
+                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
+                val fpsRange = getSupportedHighSpeedRange(opt)
+                if (fpsRange != null) set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, fpsRange)
+            }
+            val hs = session as? CameraConstrainedHighSpeedCaptureSession ?: return
+            val burst = hs.createHighSpeedRequestList(builder.build())
+            hs.setRepeatingBurst(burst, null, camHandler)
+            Log.d(TAG, "Auto focus enabled")
+        } catch (e: Exception) {
+            Log.e(TAG, "Enable AF failed", e)
+        }
+    }
+
+    fun setManualFocus(distance: Float) {
+        val dev = cameraDevice ?: return
+        val session = captureSession ?: return
+        val opt = option ?: return
+
+        try {
+            val builder = dev.createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
+                if (previewSurface != null) addTarget(previewSurface!!)
+                if (recorderSurface != null) addTarget(recorderSurface!!)
+                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
+                set(CaptureRequest.LENS_FOCUS_DISTANCE, distance)
+                val fpsRange = getSupportedHighSpeedRange(opt)
+                if (fpsRange != null) set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, fpsRange)
+            }
+            val hs = session as? CameraConstrainedHighSpeedCaptureSession ?: return
+            val burst = hs.createHighSpeedRequestList(builder.build())
+            hs.setRepeatingBurst(burst, null, camHandler)
+            Log.d(TAG, "Manual focus enabled $distance")
+        } catch (e: Exception) {
+            Log.e(TAG, "Set MF failed", e)
+        }
+    }
+
+    fun setZoomLevel(zoom: Float) {
+        val dev = cameraDevice ?: return
+        val session = captureSession ?: return
+        val opt = option ?: return
+
+        try {
+            val chars = manager?.getCameraCharacteristics(opt.cameraId) ?: return
+            val activeRect = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE) ?: return
+            val maxZoom = chars.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM) ?: 1f
+            val clampedZoom = zoom.coerceIn(1f, maxZoom)
+
+            val centerX = activeRect.width() / 2
+            val centerY = activeRect.height() / 2
+            val deltaX = (0.5f * activeRect.width() / clampedZoom).toInt()
+            val deltaY = (0.5f * activeRect.height() / clampedZoom).toInt()
+            val crop = Rect(centerX - deltaX, centerY - deltaY, centerX + deltaX, centerY + deltaY)
+
+            val builder = dev.createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
+                if (previewSurface != null) addTarget(previewSurface!!)
+                if (recorderSurface != null) addTarget(recorderSurface!!)
+                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
+                set(CaptureRequest.SCALER_CROP_REGION, crop)
+                val fpsRange = getSupportedHighSpeedRange(opt)
+                if (fpsRange != null) set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, fpsRange)
+            }
+
+            val hs = session as? CameraConstrainedHighSpeedCaptureSession ?: return
+            val burst = hs.createHighSpeedRequestList(builder.build())
+            hs.setRepeatingBurst(burst, null, camHandler)
+            Log.d(TAG, "Zoom applied: $clampedZoom")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to set zoom", e)
+        }
     }
 }
