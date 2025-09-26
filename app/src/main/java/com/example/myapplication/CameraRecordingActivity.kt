@@ -680,10 +680,14 @@ class CameraRecordingActivity : ComponentActivity() {
                     camera2Control.setCaptureRequestOptions(options)
 
                     val normalized = 1f - (lastMFAutoFocusDistance / minFocusDistance)
-                    focusScaleView.focusValue = lastSelectedFocus
+                    focusScaleView.post {
+                        focusScaleView.setValueSilently(lastSelectedFocus)
+                        val focusDistance = (1f - lastSelectedFocus) * minFocusDistance
+                        controller.setManualFocus(focusDistance)
+                    }
                     Log.d(
                         "FocusSet",
-                        "Starting MF at AF=$lastAutoFocusDistance MF=$lastMFAutoFocusDistance (slider=$normalized)"
+                        "Starting MF at AF=$lastAutoFocusDistance MF=$lastMFAutoFocusDistance (slider=$normalized) (lastSelectedFocus=$lastSelectedFocus)"
                     )
                 }
 
@@ -694,7 +698,7 @@ class CameraRecordingActivity : ComponentActivity() {
                 zoombutton.setBackgroundResource(R.drawable.record_button_ring1)
                 zoombutton.setImageResource(R.drawable.zoomwhite)
                 zoombutton.imageTintList = null
-                controller.setManualFocus(lastSelectedFocus)
+                controller.setManualFocus(lastMFAutoFocusDistance)
             } else {
                 controller.enableAutoFocus()
                 enableAutoFocus()
@@ -841,6 +845,7 @@ class CameraRecordingActivity : ComponentActivity() {
                             lastAutoFocusDistance = fd
                             if (isManualFocus) lastMFAutoFocusDistance = fd
                         }
+                        Log.d("AF_TRACK", "AutoFocus distance = $fd")
                     }
                 }
             })
@@ -1071,6 +1076,10 @@ class CameraRecordingActivity : ComponentActivity() {
             try {
                 val focusDistance = (1f - newFocus) * minFocusDistance
                 lastSelectedFocus = newFocus
+                Log.d(
+                    "FocusSet",
+                    "newFocus=$newFocus"
+                )
                 val options = CaptureRequestOptions.Builder()
                     .setCaptureRequestOption(
                         CaptureRequest.CONTROL_AF_MODE,

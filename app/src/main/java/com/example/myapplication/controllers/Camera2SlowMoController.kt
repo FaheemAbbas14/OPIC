@@ -296,7 +296,7 @@ class Camera2SlowMoController(
 
     private fun createOutputFile(): File {
         val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        val dir = context.getExternalFilesDir(null) ?: context.filesDir
+        val dir = context.cacheDir  // Use cache directory
         return File(dir, "SLOWMO_${ts}.mp4")
     }
 

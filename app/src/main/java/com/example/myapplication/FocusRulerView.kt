@@ -19,7 +19,6 @@ import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.round
 
-
 class FocusRulerView @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null, defStyle: Int = 0
 ) : View(context, attrs, defStyle) {
@@ -28,23 +27,26 @@ class FocusRulerView @JvmOverloads constructor(
 
     var minZoom = 0.0f
     var maxZoom = 1.0f
-    var step = 0.02f   // instead of 0.02f
+    var step = 0.02f
     private val selectionThreshold = step / 2
 
+    // Major tick labels
     private val zoomLevels = listOf(
-        0.00f, 0.10f, 0.20f,0.30f, 0.40f, 0.50f, 0.60f,
-        0.70f, 0.80f, 0.90f, 1.00f
+        0.00f, 0.10f, 0.20f, 0.30f, 0.40f, 0.50f,
+        0.60f, 0.70f, 0.80f, 0.90f, 1.00f
     )
-    private var rawValue = 0.0f   // smooth continuous
 
-    /** Current value */
+    // Internal continuous value used while dragging
+    private var rawValue = 0.0f
+
+    /** Current value (0f..1f) */
     var focusValue = 0.0f
-        get() = field
         set(v) {
             val nv = v.coerceIn(minZoom, maxZoom)
             if (field != nv) {
                 field = nv
-                onFocusChanged?.invoke(field)
+                // Keep drag baseline aligned with the displayed value
+                rawValue = nv
                 invalidate()
             }
         }
@@ -84,18 +86,18 @@ class FocusRulerView @JvmOverloads constructor(
     init {
         if (attrs != null) {
             val a = context.obtainStyledAttributes(attrs, R.styleable.ZoomRulerView)
-            if (a.hasValue(R.styleable.ZoomRulerView_zr_minZoom)) minZoom =
-                a.getFloatOrThrow(R.styleable.ZoomRulerView_zr_minZoom)
-            if (a.hasValue(R.styleable.ZoomRulerView_zr_maxZoom)) maxZoom =
-                a.getFloatOrThrow(R.styleable.ZoomRulerView_zr_maxZoom)
-            if (a.hasValue(R.styleable.ZoomRulerView_zr_step)) step =
-                a.getFloatOrThrow(R.styleable.ZoomRulerView_zr_step)
-            if (a.hasValue(R.styleable.ZoomRulerView_zr_tickSpacing)) tickSpacingPx =
-                a.getDimensionOrThrow(R.styleable.ZoomRulerView_zr_tickSpacing)
-            if (a.hasValue(R.styleable.ZoomRulerView_zr_textSize)) textSizePx =
-                a.getDimensionOrThrow(R.styleable.ZoomRulerView_zr_textSize)
-            if (a.hasValue(R.styleable.ZoomRulerView_zr_pointerRadius)) pointerRadiusPx =
-                a.getDimensionOrThrow(R.styleable.ZoomRulerView_zr_pointerRadius)
+            if (a.hasValue(R.styleable.ZoomRulerView_zr_minZoom))
+                minZoom = a.getFloatOrThrow(R.styleable.ZoomRulerView_zr_minZoom)
+            if (a.hasValue(R.styleable.ZoomRulerView_zr_maxZoom))
+                maxZoom = a.getFloatOrThrow(R.styleable.ZoomRulerView_zr_maxZoom)
+            if (a.hasValue(R.styleable.ZoomRulerView_zr_step))
+                step = a.getFloatOrThrow(R.styleable.ZoomRulerView_zr_step)
+            if (a.hasValue(R.styleable.ZoomRulerView_zr_tickSpacing))
+                tickSpacingPx = a.getDimensionOrThrow(R.styleable.ZoomRulerView_zr_tickSpacing)
+            if (a.hasValue(R.styleable.ZoomRulerView_zr_textSize))
+                textSizePx = a.getDimensionOrThrow(R.styleable.ZoomRulerView_zr_textSize)
+            if (a.hasValue(R.styleable.ZoomRulerView_zr_pointerRadius))
+                pointerRadiusPx = a.getDimensionOrThrow(R.styleable.ZoomRulerView_zr_pointerRadius)
             a.recycle()
         }
 
@@ -112,6 +114,14 @@ class FocusRulerView @JvmOverloads constructor(
         isClickable = true
     }
 
+    /** Set without invoking callbacks; keeps drag baseline in sync. */
+    fun setValueSilently(v: Float) {
+        val nv = v.coerceIn(minZoom, maxZoom)
+        focusValue = nv
+        rawValue = nv
+        invalidate()
+    }
+
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val minW = dp(80f).toInt()
         val w = resolveSize(minW, widthMeasureSpec)
@@ -125,8 +135,9 @@ class FocusRulerView @JvmOverloads constructor(
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 lastY = event.y
+                rawValue = focusValue          // <<< start drag from current value
                 scroller.forceFinished(true)
-                return true
+                return performClick()
             }
             MotionEvent.ACTION_MOVE -> {
                 val dy = event.y - lastY
@@ -141,36 +152,36 @@ class FocusRulerView @JvmOverloads constructor(
                     .toFloat()
 
                 if (newValue != focusValue) {
+                    // Update display value; keep rawValue as the continuous accumulator
                     focusValue = newValue
                     onFocusChanged?.invoke(focusValue)
-                    invalidate()
                 }
                 return true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                // Snap to nearest 0.02
-                val snapped = round(focusValue / step) * step
-                focusValue = (snapped * 100f).toInt() / 100f.toFloat()
-                return true
-            }
-
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 val snapped = round(rawValue / step) * step
-                focusValue = (snapped * 100f).toInt() / 100f.toFloat()
-                rawValue = focusValue // snap raw too
+                val finalValue = (snapped * 100f).toInt() / 100f.toFloat()
+                focusValue = finalValue
+                rawValue = finalValue           // <<< keep internal state aligned
                 onFocusChanged?.invoke(focusValue)
                 invalidate()
                 return true
             }
-
         }
         return super.onTouchEvent(event)
     }
 
+    override fun performClick(): Boolean {
+        super.performClick()
+        return true
+    }
+
     override fun computeScroll() {
         if (scroller.computeScrollOffset()) {
-            focusValue = (scroller.currY.toFloat() / tickSpacingPx * step)
+            val v = (scroller.currY.toFloat() / tickSpacingPx * step)
                 .coerceIn(minZoom, maxZoom)
+            focusValue = v
+            rawValue = v
             postInvalidateOnAnimation()
         }
     }
@@ -205,12 +216,9 @@ class FocusRulerView @JvmOverloads constructor(
             if (v < minZoom - 1e-4 || v > maxZoom + 1e-4) continue
 
             val y = cyPointer + ((focusValue - v) / step) * tickSpacingPx
-// inside onDraw()
+
             val tolerance = 0.001f
             val isMajor = zoomLevels.any { abs(it - v) < tolerance }
-
-            // Major every 0.10
-//            val isMajor = abs((v * 100).toInt() % 10) == 0
 
             val left = if (isMajor) bigTickLeft else smallTickLeft
             val paint = if (isMajor) tickPaint else faintTickPaint
