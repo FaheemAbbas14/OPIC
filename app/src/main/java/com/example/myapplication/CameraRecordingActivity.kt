@@ -4,6 +4,7 @@ import android.Manifest
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.Dialog
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -49,6 +50,7 @@ import androidx.annotation.RequiresApi
 import androidx.annotation.RequiresPermission
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.view.ContextThemeWrapper
+import androidx.appcompat.widget.AppCompatImageView
 import androidx.camera.camera2.interop.Camera2CameraControl
 import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.camera2.interop.Camera2Interop
@@ -192,7 +194,9 @@ class CameraRecordingActivity : ComponentActivity() {
     private lateinit var sensorManager: SensorManager
     private var currentPreview: Preview? = null
     private var rebindJob: Job? = null
-    @Volatile private var isRebinding = false
+    @Volatile
+    private var isRebinding = false
+
     // ——— Media sounds ———
     private val shutter by lazy { MediaActionSound().apply { load(MediaActionSound.SHUTTER_CLICK) } }
     private val mediaSounds by lazy {
@@ -406,7 +410,11 @@ class CameraRecordingActivity : ComponentActivity() {
 
                 if (isSlowMo) {
                     if (options.isEmpty()) {
-                        Toast.makeText(this@CameraRecordingActivity, "No slow-mo options found!", Toast.LENGTH_LONG).show()
+                        Toast.makeText(
+                            this@CameraRecordingActivity,
+                            "No slow-mo options found!",
+                            Toast.LENGTH_LONG
+                        ).show()
                         return@launch
                     }
                     if (selectedOption == null) selectedOption = options.first()
@@ -428,7 +436,11 @@ class CameraRecordingActivity : ComponentActivity() {
                             runOnUiThread {
                                 modeController.setIndex(0)
                                 toggleMode()
-                                Toast.makeText(this@CameraRecordingActivity, "Slow-mo unsupported: ${e.message}", Toast.LENGTH_LONG).show()
+                                Toast.makeText(
+                                    this@CameraRecordingActivity,
+                                    "Slow-mo unsupported: ${e.message}",
+                                    Toast.LENGTH_LONG
+                                ).show()
                             }
                         }
                     )
@@ -439,7 +451,11 @@ class CameraRecordingActivity : ComponentActivity() {
                                 selectedOption = sixty
                                 isSlowMo = true
                                 rebindForCurrentMode()
-                                Toast.makeText(this@CameraRecordingActivity, "Low light — switched to 60 fps for brightness", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(
+                                    this@CameraRecordingActivity,
+                                    "Low light — switched to 60 fps for brightness",
+                                    Toast.LENGTH_SHORT
+                                ).show()
                             }
                         }
                     }
@@ -460,9 +476,11 @@ class CameraRecordingActivity : ComponentActivity() {
     private fun detachPreviewFromCameraX(preview: Preview?) {
         try {
             preview?.setSurfaceProvider(null)
-        } catch (_: Throwable) {}
+        } catch (_: Throwable) {
+        }
 
     }
+
     private fun toggleMode() {
         if (isSlowMo && captureMode == CaptureMode.VIDEO) {
             spnOptions.visibility = VISIBLE
@@ -557,7 +575,8 @@ class CameraRecordingActivity : ComponentActivity() {
                                     onSaved = { uri ->
                                         isRecording = false
                                         Log.d("SlowMoTest", "Finalized video = $uri")
-                                        playBack(uri)
+                                       // playBack(uri)
+                                        showMediaPopup(uri)
                                     },
                                     onError = { e ->
                                         isRecording = false
@@ -864,7 +883,7 @@ class CameraRecordingActivity : ComponentActivity() {
                 FallbackStrategy.lowerQualityOrHigherThan(Quality.SD)
             )
 
-            val recorder = Recorder.Builder().setQualitySelector(qualitySelector).build()
+            val recorder = Recorder.Builder().setQualitySelector(qualitySelector).setTargetVideoEncodingBitRate(AspectRatio.RATIO_16_9).build()
             videoCapture = VideoCapture.withOutput(recorder)
 
             cameraProvider.unbindAll()
@@ -901,7 +920,7 @@ class CameraRecordingActivity : ComponentActivity() {
                 onStarted = {
                     isRecording = true
                 },
-                onSaved = { uri -> playBack(uri) },
+                onSaved = { uri -> showMediaPopup(uri) },
                 onError = { e ->
                     isRecording = false
                     Log.e("SlowMoTest", "Recording error", e)
@@ -1157,7 +1176,7 @@ class CameraRecordingActivity : ComponentActivity() {
         val outputUri = compressVideoToCacheUri(this, uri)
         if (outputUri != null) {
             Log.d("VideoCompressor", "Compressed at: $outputUri size=${getFileSize(outputUri)}")
-            playBack(uri)
+            showMediaPopup(uri)
         } else {
             Log.e("VideoCompressor", "Compression failed")
         }
@@ -1273,8 +1292,8 @@ class CameraRecordingActivity : ComponentActivity() {
         }
 
         // ADD: in slow-mo, hide/disable manual focus and any CameraX-only toggles
-      //  manualfocus.isEnabled = !isSlowMo
-      //  manualfocus.visibility = if (isSlowMo) GONE else VISIBLE
+        //  manualfocus.isEnabled = !isSlowMo
+        //  manualfocus.visibility = if (isSlowMo) GONE else VISIBLE
         flashBtn.isEnabled = !isSlowMo
     }
 
@@ -1372,15 +1391,21 @@ class CameraRecordingActivity : ComponentActivity() {
     fun cropImage(imageUri: Uri) {
         val leftUri: Uri = ImageSplitter.splitHalfToUri(this, imageUri, ImageSplitter.Side.LEFT)
         val rightUri: Uri = ImageSplitter.splitHalfToUri(this, imageUri, ImageSplitter.Side.RIGHT)
-        val imageView = ImageView(this)
-        imageView.setImageURI(leftUri)
-        setContentView(imageView)
+//        val imageView = ImageView(this)
+//        imageView.setImageURI(leftUri)
+//        setContentView(imageView)
+        showMediaPopup(leftUri,true)
     }
 
     private fun initAfterPermissions() {
         lifecycleScope.launch {
             options =
-                withContext(Dispatchers.Default) {listBackCameraSlowMoOptions(this@CameraRecordingActivity, 60)}
+                withContext(Dispatchers.Default) {
+                    listBackCameraSlowMoOptions(
+                        this@CameraRecordingActivity,
+                        60
+                    )
+                }
             if (options.isEmpty()) {
                 Toast.makeText(
                     this@CameraRecordingActivity,
@@ -1406,13 +1431,19 @@ class CameraRecordingActivity : ComponentActivity() {
             spnOptions.isEnabled = isSlowMo
 
             spnOptions.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-                override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                override fun onItemSelected(
+                    parent: AdapterView<*>?,
+                    view: View?,
+                    position: Int,
+                    id: Long
+                ) {
                     if (!isSlowMo) return
                     val newOpt = options[position]
                     if (selectedOption === newOpt) return // ADD: no-op if same
                     selectedOption = newOpt
                     rebindForCurrentMode()
                 }
+
                 override fun onNothingSelected(parent: AdapterView<*>?) {}
             }
 
@@ -1427,4 +1458,37 @@ class CameraRecordingActivity : ComponentActivity() {
     // dp extension
     private fun Int.dp(context: Context): Int =
         (this * context.resources.displayMetrics.density).roundToInt()
+
+    fun Context.showMediaPopup(uri: Uri,isImage: Boolean = false) {
+        val dialog = Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
+        dialog.setContentView(R.layout.dialog_media_popup)
+
+        val imgClose = dialog.findViewById<AppCompatImageView>(R.id.imgClose)
+        val imgMedia = dialog.findViewById<ImageView>(R.id.imgPreview)
+        val videoMedia = dialog.findViewById<VideoView>(R.id.videoPreview)
+
+       // val mimeType = contentResolver.getType(uri)
+
+        if (isImage) {
+            // Show Image
+            imgMedia.visibility = View.VISIBLE
+            videoMedia.visibility = View.GONE
+            imgMedia.setImageURI(uri)
+        } else  {
+            // Show Video
+            imgMedia.visibility = View.GONE
+            videoMedia.visibility = View.VISIBLE
+            videoMedia.setVideoURI(uri)
+            videoMedia.setOnPreparedListener { mp ->
+                mp.isLooping = true
+                videoMedia.start()
+            }
+        }
+
+        imgClose.setOnClickListener {
+            dialog.dismiss()
+        }
+
+        dialog.show()
+    }
 }

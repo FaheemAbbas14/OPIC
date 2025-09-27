@@ -18,6 +18,7 @@ import android.util.Range
 import android.util.Size
 import android.view.Surface
 import androidx.annotation.RequiresPermission
+import androidx.camera.core.AspectRatio
 import androidx.camera.view.PreviewView
 import com.example.myapplication.model.SlowMoOption
 import java.io.File
@@ -203,7 +204,7 @@ class Camera2SlowMoController(
             setVideoEncoder(MediaRecorder.VideoEncoder.H264)
             setVideoFrameRate(opt.fpsRange.upper)
             setVideoSize(opt.size.width, opt.size.height)
-            val targetBitrate = max(12_000_000, opt.size.width * opt.size.height * opt.fpsRange.upper / 2)
+            val targetBitrate = max(AspectRatio.RATIO_16_9, opt.size.width * opt.size.height * opt.fpsRange.upper / 2)
             setVideoEncodingBitRate(targetBitrate)
             prepare()
         }

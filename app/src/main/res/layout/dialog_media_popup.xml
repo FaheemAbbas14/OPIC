@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#CC000000">
+
+    <!-- Image or video goes here -->
+    <FrameLayout
+        android:id="@+id/containerMedia"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <!-- Image preview -->
+        <ImageView
+            android:id="@+id/imgPreview"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="fitCenter"
+            android:visibility="gone" />
+
+        <!-- Video preview -->
+        <VideoView
+            android:id="@+id/videoPreview"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone" />
+
+    </FrameLayout>
+
+    <!-- Close button always on top-right -->
+    <androidx.appcompat.widget.AppCompatImageView
+        android:id="@+id/imgClose"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_gravity="top|end"
+        android:layout_margin="16dp"
+        android:padding="8dp"
+        android:src="@drawable/ic_close"
+        app:tint="@android:color/white"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="Close" />
+
+</FrameLayout>
