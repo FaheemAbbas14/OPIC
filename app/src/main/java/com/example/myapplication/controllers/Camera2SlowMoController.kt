@@ -10,7 +10,9 @@ import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
 import android.media.MediaRecorder
+import android.media.MediaScannerConnection
 import android.net.Uri
+import android.os.Environment
 import android.os.Handler
 import android.os.HandlerThread
 import android.util.Log
@@ -143,7 +145,9 @@ class Camera2SlowMoController(
         val chars = manager?.getCameraCharacteristics(opt.cameraId) ?: return null
         val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return null
         val supportedRanges = map.getHighSpeedVideoFpsRangesFor(opt.size)
-        return supportedRanges.firstOrNull { it.upper == opt.fpsRange.upper } ?: supportedRanges.firstOrNull()
+
+        // Ensure the FPS range supports 120 FPS or higher
+        return supportedRanges.firstOrNull { it.upper >= 120 } ?: supportedRanges.firstOrNull()
     }
 
     private fun configurePreview(opt: SlowMoOption, onError: (Throwable) -> Unit = {}) {
@@ -164,9 +168,15 @@ class Camera2SlowMoController(
                                 set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
                                 val chars = manager?.getCameraCharacteristics(opt.cameraId)
                                 val aeRange = chars?.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE)
-                                set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, aeRange?.upper)
+                                set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, aeRange?.lower ?: 0)
+
+                                // Set shutter speed for 120 FPS (1/240th sec)
+                                set(CaptureRequest.SENSOR_EXPOSURE_TIME, 50000000) // 1/240 sec shutter speed
+
+                                // Set FPS Range for 120 FPS or higher
                                 val fpsRange = getSupportedHighSpeedRange(opt)
                                 if (fpsRange != null) set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, fpsRange)
+
                                 set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_OFF)
                             }
                             val hs = session as CameraConstrainedHighSpeedCaptureSession
@@ -226,7 +236,7 @@ class Camera2SlowMoController(
                             set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
                             val chars = manager?.getCameraCharacteristics(opt.cameraId)
                             val aeRange = chars?.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE)
-                            set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, aeRange?.upper)
+                            set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, aeRange?.lower ?: 0)
                             val fpsRange = getSupportedHighSpeedRange(opt)
                             if (fpsRange != null) set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, fpsRange)
                             set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_OFF)
@@ -297,10 +307,17 @@ class Camera2SlowMoController(
 
     private fun createOutputFile(): File {
         val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        val dir = context.cacheDir  // Use cache directory
-        return File(dir, "SLOWMO_${ts}.mp4")
+        val folder = "MySlowMoVideos"
+        val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), folder)
+        if (!dir.exists()) {
+            dir.mkdirs()
+        }
+        val file = File(dir, "SLOWMO_${ts}.mp4")
+        MediaScannerConnection.scanFile(context, arrayOf(file.absolutePath), arrayOf("video/mp4"), null)
+        return file
     }
 
+    // Auto focus
     fun enableAutoFocus() {
         val dev = cameraDevice ?: return
         val session = captureSession ?: return
@@ -323,6 +340,7 @@ class Camera2SlowMoController(
         }
     }
 
+    // Manual focus
     fun setManualFocus(distance: Float) {
         val dev = cameraDevice ?: return
         val session = captureSession ?: return
@@ -346,6 +364,7 @@ class Camera2SlowMoController(
         }
     }
 
+    // Zoom functionality
     fun setZoomLevel(zoom: Float) {
         val dev = cameraDevice ?: return
         val session = captureSession ?: return
