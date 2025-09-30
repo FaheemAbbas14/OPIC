@@ -18,6 +18,9 @@ import android.hardware.camera2.CaptureResult.CONTROL_AF_MODE_CONTINUOUS_VIDEO
 import android.hardware.camera2.CaptureResult.LENS_FOCUS_DISTANCE
 import android.hardware.camera2.TotalCaptureResult
 import android.media.MediaActionSound
+import android.media.MediaExtractor
+import android.media.MediaFormat
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -102,6 +105,7 @@ import com.example.myapplication.controllers.ModeSelectorController
 import com.example.myapplication.controllers.ZoomAdapterControl
 import com.example.myapplication.helper.ImageSplitter
 import com.example.myapplication.model.SlowMoOption
+import com.example.myapplication.model.SlowMoResult
 import com.example.myapplication.model.listBackCameraSlowMoOptions
 import com.example.myapplication.views.GlowingTimerView
 import com.example.myapplication.views.RotationLineOverlay
@@ -194,6 +198,7 @@ class CameraRecordingActivity : ComponentActivity() {
     private lateinit var sensorManager: SensorManager
     private var currentPreview: Preview? = null
     private var rebindJob: Job? = null
+
     @Volatile
     private var isRebinding = false
 
@@ -444,6 +449,7 @@ class CameraRecordingActivity : ComponentActivity() {
                             }
                         }
                     )
+                    controller.forceIndoorBrightMode(true, mainsHz = 50) // BEFORE startRecording
                     controller.onTooDark = {
                         val sixty = options.firstOrNull { it.fpsRange.upper == 60 }
                         if (sixty != null) {
@@ -575,7 +581,7 @@ class CameraRecordingActivity : ComponentActivity() {
                                     onSaved = { uri ->
                                         isRecording = false
                                         Log.d("SlowMoTest", "Finalized video = $uri")
-                                       // playBack(uri)
+                                        // playBack(uri)
                                         showMediaPopup(uri)
                                     },
                                     onError = { e ->
@@ -864,7 +870,7 @@ class CameraRecordingActivity : ComponentActivity() {
                             lastAutoFocusDistance = fd
                             if (isManualFocus) lastMFAutoFocusDistance = fd
                         }
-                        Log.d("AF_TRACK", "AutoFocus distance = $fd")
+                      //  Log.d("AF_TRACK", "AutoFocus distance = $fd")
                     }
                 }
             })
@@ -883,7 +889,8 @@ class CameraRecordingActivity : ComponentActivity() {
                 FallbackStrategy.lowerQualityOrHigherThan(Quality.SD)
             )
 
-            val recorder = Recorder.Builder().setQualitySelector(qualitySelector).setTargetVideoEncodingBitRate(AspectRatio.RATIO_16_9).build()
+            val recorder = Recorder.Builder().setQualitySelector(qualitySelector)
+                .setTargetVideoEncodingBitRate(AspectRatio.RATIO_16_9).build()
             videoCapture = VideoCapture.withOutput(recorder)
 
             cameraProvider.unbindAll()
@@ -1394,7 +1401,7 @@ class CameraRecordingActivity : ComponentActivity() {
 //        val imageView = ImageView(this)
 //        imageView.setImageURI(leftUri)
 //        setContentView(imageView)
-        showMediaPopup(leftUri,true)
+        showMediaPopup(leftUri, true)
     }
 
     private fun initAfterPermissions() {
@@ -1459,7 +1466,7 @@ class CameraRecordingActivity : ComponentActivity() {
     private fun Int.dp(context: Context): Int =
         (this * context.resources.displayMetrics.density).roundToInt()
 
-    fun Context.showMediaPopup(uri: Uri,isImage: Boolean = false) {
+    fun Context.showMediaPopup(uri: Uri, isImage: Boolean = false) {
         val dialog = Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
         dialog.setContentView(R.layout.dialog_media_popup)
 
@@ -1467,14 +1474,19 @@ class CameraRecordingActivity : ComponentActivity() {
         val imgMedia = dialog.findViewById<ImageView>(R.id.imgPreview)
         val videoMedia = dialog.findViewById<VideoView>(R.id.videoPreview)
 
-       // val mimeType = contentResolver.getType(uri)
+        // val mimeType = contentResolver.getType(uri)
 
         if (isImage) {
             // Show Image
             imgMedia.visibility = View.VISIBLE
             videoMedia.visibility = View.GONE
             imgMedia.setImageURI(uri)
-        } else  {
+        } else {
+            val result = checkSlowMoFromUri(this, uri, assumedCaptureFps = 120)
+            Log.d("SlowMoCheck", "Playback FPS=${result.playbackFps?.let { "%.2f".format(it) } ?: "?"} • " +
+                    "Factor=${result.factor?.let { "%.2f".format(it) } ?: "?"}x • " +
+                    "SlowMo=${result.isSlowMo}")
+
             // Show Video
             imgMedia.visibility = View.GONE
             videoMedia.visibility = View.VISIBLE
@@ -1490,5 +1502,102 @@ class CameraRecordingActivity : ComponentActivity() {
         }
 
         dialog.show()
+    }
+
+    fun getPlaybackFps(context: Context, uri: Uri): Double? {
+        val mmr = android.media.MediaMetadataRetriever()
+        return try {
+            mmr.setDataSource(context, uri)
+            // May be null on some OEMs
+            val frameRateStr = mmr.extractMetadata(
+                android.media.MediaMetadataRetriever.METADATA_KEY_CAPTURE_FRAMERATE
+            ) ?: mmr.extractMetadata(24 /* undocumented: try KEY_VIDEO_FRAME_RATE on some devices */)
+
+            frameRateStr?.toDoubleOrNull()
+                ?: run {
+                    // Fallback: estimate fps = frameCount / (durationSeconds)
+                    val durationMs = mmr.extractMetadata(
+                        android.media.MediaMetadataRetriever.METADATA_KEY_DURATION
+                    )?.toLongOrNull() ?: return null
+                    val frameCount = mmr.extractMetadata(
+                        android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_FRAME_COUNT
+                    )?.toLongOrNull()
+                    if (frameCount != null && durationMs > 0) {
+                        frameCount.toDouble() / (durationMs.toDouble() / 1000.0)
+                    } else null
+                }
+        } catch (_: Throwable) { null } finally { mmr.release() }
+    }
+
+
+    /** Compute playback FPS by averaging timestamp deltas from the video track. */
+    fun computePlaybackFpsFromExtractor(context: Context, uri: Uri, sampleLimit: Int = 400): Double? {
+        val extractor = MediaExtractor()
+        try {
+            extractor.setDataSource(context, uri, null)
+
+            // Pick the first video track
+            var videoTrack = -1
+            for (i in 0 until extractor.trackCount) {
+                val fmt = extractor.getTrackFormat(i)
+                val mime = fmt.getString(MediaFormat.KEY_MIME) ?: continue
+                if (mime.startsWith("video/")) {
+                    videoTrack = i
+                    break
+                }
+            }
+            if (videoTrack < 0) return null
+
+            extractor.selectTrack(videoTrack)
+
+            // Iterate samples and accumulate time deltas
+            var lastPtsUs: Long? = null
+            var sumDeltaUs = 0L
+            var deltaCount = 0
+
+            var samplesRead = 0
+            while (samplesRead < sampleLimit) {
+                val ptsUs = extractor.sampleTime
+                if (ptsUs < 0) break // end of stream
+
+                lastPtsUs?.let { prev ->
+                    val d = ptsUs - prev
+                    // guard against bad timestamps or B-frame reordering
+                    if (d > 0 && d < 1_000_000) { // ignore insane gaps > 1s
+                        sumDeltaUs += d
+                        deltaCount++
+                    }
+                }
+                lastPtsUs = ptsUs
+                extractor.advance()
+                samplesRead++
+            }
+
+            if (deltaCount == 0) return null
+            val avgDeltaUs = sumDeltaUs.toDouble() / deltaCount.toDouble()
+            return if (avgDeltaUs > 0.0) 1_000_000.0 / avgDeltaUs else null
+        } catch (t: Throwable) {
+            Log.w("SlowMoCheck", "Extractor FPS calc failed: ${t.message}")
+            return null
+        } finally {
+            try { extractor.release() } catch (_: Throwable) {}
+        }
+    }
+
+    /** High-level helper that prints & returns the slow-mo verdict. */
+    fun checkSlowMoFromUri(context: Context, uri: Uri, assumedCaptureFps: Int = 120): SlowMoResult {
+        // 1) Try extractor-based FPS (works on most files, even VFR)
+        val playbackFps = computePlaybackFpsFromExtractor(context, uri)
+
+        val factor = playbackFps?.let { if (it > 0) assumedCaptureFps / it else null }
+        val isSlowMo = (factor ?: 1.0) > 1.5
+
+        Log.d(
+            "SlowMoCheck",
+            "playback=${playbackFps?.let { "%.2f".format(it) } ?: "?"}, " +
+                    "capture=$assumedCaptureFps, factor=${factor?.let { "%.2f".format(it) } ?: "?"}, slowMo=$isSlowMo"
+        )
+
+        return SlowMoResult(playbackFps, assumedCaptureFps, factor, isSlowMo)
     }
 }

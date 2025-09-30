@@ -28,7 +28,8 @@ class HybridSlowMoController(
     private var cameraXController: CameraXSlowMoController? = null
     private var camera2Controller: Camera2SlowMoController? = null
     private var boundOption: SlowMoOption? = null
-    @Volatile private var ready = false
+    @Volatile
+    private var ready = false
     fun isReady() = ready
 
     /** optional low-light callback (set from Activity) */
@@ -112,6 +113,12 @@ class HybridSlowMoController(
 
     fun setZoomLevel(zoom: Float) {
         camera2Controller?.setZoomLevel(zoom)
+    }
+
+    fun forceIndoorBrightMode(enable: Boolean, mainsHz: Int = 50) {
+        camera2Controller?.setIndoorBrightnessBias(-4)           // a little dimmer than default -3
+        camera2Controller?.setUllRangePreferences(24, 30)       // prefer 24–30 if supported
+        camera2Controller?.forceIndoorBrightMode(enable, mainsHz)
     }
 
     fun release() {
