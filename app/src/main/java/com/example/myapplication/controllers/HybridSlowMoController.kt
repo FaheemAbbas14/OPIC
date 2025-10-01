@@ -28,6 +28,7 @@ class HybridSlowMoController(
     private var cameraXController: CameraXSlowMoController? = null
     private var camera2Controller: Camera2SlowMoController? = null
     private var boundOption: SlowMoOption? = null
+
     @Volatile
     private var ready = false
     fun isReady() = ready
@@ -51,6 +52,7 @@ class HybridSlowMoController(
             camera2Controller = Camera2SlowMoController(context, previewView).also {
                 it.start()
                 it.onTooDark = onTooDark
+                it.setZoomLevel(1.2f)
                 it.bind(option) { e ->
                     Log.e("HybridController", "Camera2 bind error: ${e.message}", e)
                     onError(e)
@@ -116,9 +118,12 @@ class HybridSlowMoController(
     }
 
     fun forceIndoorBrightMode(enable: Boolean, mainsHz: Int = 50) {
-        camera2Controller?.setIndoorBrightnessBias(-4)           // a little dimmer than default -3
-        camera2Controller?.setUllRangePreferences(24, 30)       // prefer 24–30 if supported
-        camera2Controller?.forceIndoorBrightMode(enable, mainsHz)
+        camera2Controller?.forceIndoorBrightMode(enable, mainsHz)  // or 60 depending on your lights
+        camera2Controller?.setUllRangePreferences(minLower = 15, maxUpper = 30)
+        camera2Controller?.setPreferHfrOutdoors(true)   // smoother and sharper outdoors
+        camera2Controller?.setOutdoorBrightnessBias(-3) // Footej-like darker sunlight
+        camera2Controller?.setIndoorBrightnessBias(-3)  // keep indoor ULL slightly dimmer to reduce blur
+        camera2Controller?.setZoomLevel(1.2f)
     }
 
     fun release() {
