@@ -44,6 +44,7 @@ class Camera2SlowMoController(
     // Recording
     private var mediaRecorder: MediaRecorder? = null
     private var outputFile: File? = null
+    private var isRecording = false
 
     // Options
     private var option: SlowMoOption? = null
@@ -112,26 +113,35 @@ class Camera2SlowMoController(
     private val encodeFpsForOutput = 30
 
     // --- Tuning knobs ---
-    private var indoorEvBiasSteps  = -3   // (ULL/STD60) slightly below EV max (when used)
-    private var outdoorEvBiasSteps = -2   // HFR outdoors slightly dimmer
+    private var indoorEvBiasSteps  = -3
+    private var outdoorEvBiasSteps = -2
     private var ullPreferredMaxUpper = 30
     private var ullMinLowerTarget  = 15
-
-    // Quality knobs
-    private var useHevcIfAvailable = true // try HEVC for cleaner picture at same bitrate
-
-    // Remember indoor request made before camera opened
+    private var useHevcIfAvailable = true
     private var forceIndoorRequested = false
 
-    // ---------- Size from SlowMoOption (no hardcoded dims) ----------
+    // Size from SlowMoOption
     private var activeSize: Size? = null
     private fun currentSize(): Size {
-        val opt = option ?: return Size(1280, 720) // harmless fallback
+        val opt = option ?: return Size(1280, 720)
         return activeSize ?: opt.size
     }
 
-    // Match reference brightness in ULL (negative = darker)
+    // ULL brightness target (negative = darker)
     private var targetEvUllSteps = -6
+
+    // Focus state persists across re-applies
+    private enum class FocusState { AUTO, MANUAL }
+    private var focusState: FocusState = FocusState.AUTO
+    private var focusDistance: Float = 0f
+
+    // --- Persistent zoom state ---
+    private var zoomLevel: Float = 1.2f
+    private var maxDigitalZoom: Float = 1f
+    private var activeArrayRect: Rect? = null
+
+    // Helpers
+    private fun surfaceUsable(s: Surface?): Boolean = (s != null && s.isValid)
 
     // ---------- Lifecycle ----------
     fun start() {
@@ -156,15 +166,16 @@ class Camera2SlowMoController(
         try {
             manager?.getCameraCharacteristics(opt.cameraId)?.let { chars ->
                 aeCompRange = chars.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE)
-                // Use size from SlowMoOption directly
                 activeSize = opt.size
+
+                // init sensor geometry & max zoom
+                activeArrayRect = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
+                maxDigitalZoom = chars.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM) ?: 1f
+                zoomLevel = zoomLevel.coerceIn(1f, maxDigitalZoom.coerceAtMost(5f))
             }
             currentEvSteps = clampEv(0)
-
-            // Use chosen size for HFR range lookup
             targetFpsForBudget = (getSupportedHighSpeedRange(opt)?.upper ?: opt.fpsRange.upper).coerceAtLeast(60)
 
-            // Create preview surface with the chosen size
             previewSurface = waitForPreviewSurface(currentSize(), 1200)
                 ?: return onError(IllegalStateException("Preview surface not ready"))
 
@@ -181,7 +192,6 @@ class Camera2SlowMoController(
                         pipeline = Pipeline.ULL15_30
                         Log.d(TAG, "onOpened: honoring pending indoor ULL request")
                     } else {
-                        // If the chosen size is not HFR-capable, fall back to STD60
                         val hasHfrForSize = getSupportedHighSpeedRange(opt) != null
                         if (hasHfrForSize) {
                             pipeline = Pipeline.HFR
@@ -229,7 +239,6 @@ class Camera2SlowMoController(
             setCurrentEv(0)
             if (cameraDevice != null) {
                 closeSessionSync()
-                // If size doesn’t support HFR, go STD60
                 if (getSupportedHighSpeedRange(opt) != null) {
                     configurePreviewHfr(opt) { e -> Log.e(TAG, "forceIndoorBrightMode → HFR failed", e) }
                 } else {
@@ -242,26 +251,16 @@ class Camera2SlowMoController(
         }
     }
 
-    fun setPreferHfrOutdoors(enabled: Boolean) {
-        preferHfrOutdoors = enabled
-        Log.d(TAG, "Prefer HFR outdoors: $preferHfrOutdoors")
-    }
-
+    fun setPreferHfrOutdoors(enabled: Boolean) { preferHfrOutdoors = enabled }
     fun setOutdoorBrightnessBias(evStepsBelowNeutral: Int) {
         outdoorEvBiasSteps = evStepsBelowNeutral
-        if (pipeline == Pipeline.HFR && envState == Env.OUTDOOR) {
-            setCurrentEv(clampEv(outdoorEvBiasSteps))
-        }
-        Log.d(TAG, "Outdoor EV bias set to $outdoorEvBiasSteps")
+        if (pipeline == Pipeline.HFR && envState == Env.OUTDOOR) setCurrentEv(clampEv(outdoorEvBiasSteps))
     }
 
     // ---------- Surface ----------
     private fun waitForPreviewSurface(size: Size, timeoutMs: Long): Surface? {
         val end = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs)
-
-        // Hint PreviewView to use TextureView mode if supported
         try { previewView.implementationMode = PreviewView.ImplementationMode.COMPATIBLE } catch (_: Throwable) {}
-
         while (System.nanoTime() < end) {
             val childCount = previewView.childCount
             for (i in 0 until childCount) {
@@ -276,9 +275,7 @@ class Camera2SlowMoController(
                     }
                     is android.view.SurfaceView -> {
                         val s = v.holder?.surface
-                        if (s != null && s.isValid) {
-                            return s
-                        }
+                        if (s != null && s.isValid) return s
                     }
                 }
             }
@@ -291,7 +288,6 @@ class Camera2SlowMoController(
     private fun clampEv(ev: Int): Int = aeCompRange?.let { ev.coerceIn(it.lower, it.upper) } ?: 0
     private fun aeUpper(): Int = aeCompRange?.upper ?: 0
 
-    // Use the active (opt) size
     private fun getSupportedHighSpeedRange(@Suppress("UNUSED_PARAMETER") opt: SlowMoOption): Range<Int>? {
         val camId = option?.cameraId ?: return null
         val chars = manager?.getCameraCharacteristics(camId) ?: return null
@@ -351,19 +347,41 @@ class Camera2SlowMoController(
         return modes.contains(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_ON)
     }
 
-    // ---------- Requests ----------
+    // --- Zoom helpers ---
+    private fun cropRegionForZoom(zoom: Float): Rect? {
+        val sensor = activeArrayRect ?: return null
+        val z = zoom.coerceAtLeast(1f).coerceAtMost(maxDigitalZoom.coerceAtLeast(1f))
+        if (z <= 1f) return sensor
+        val cx = sensor.centerX()
+        val cy = sensor.centerY()
+        val halfW = (sensor.width() / (2f * z)).toInt()
+        val halfH = (sensor.height() / (2f * z)).toInt()
+        return Rect(cx - halfW, cy - halfH, cx + halfW, cy + halfH)
+    }
+
+    // ---------- Requests (all honor focus & zoom state) ----------
     private fun buildHfrRequest(template: Int, includeRecorder: Boolean): CaptureRequest.Builder {
         val dev = cameraDevice ?: throw IllegalStateException("Camera not ready")
         return dev.createCaptureRequest(template).apply {
             previewSurface?.let { addTarget(it) }
-            if (includeRecorder) recorderSurface?.let { addTarget(it) }
+            if (includeRecorder && surfaceUsable(recorderSurface)) recorderSurface?.let { addTarget(it) }
 
             set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_USE_SCENE_MODE)
             set(CaptureRequest.CONTROL_SCENE_MODE, CaptureRequest.CONTROL_SCENE_MODE_HIGH_SPEED_VIDEO)
             set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
-            set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
 
-            // Slightly dimmer & sharper outdoors
+            when (focusState) {
+                FocusState.AUTO -> set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
+                FocusState.MANUAL -> {
+                    set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
+                    set(CaptureRequest.LENS_FOCUS_DISTANCE, focusDistance)
+                    set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_CANCEL)
+                }
+            }
+
+            // Persisted zoom
+            cropRegionForZoom(zoomLevel)?.let { set(CaptureRequest.SCALER_CROP_REGION, it) }
+
             val evForHfr = if (envState == Env.OUTDOOR) clampEv(outdoorEvBiasSteps) else 0
             set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, evForHfr)
 
@@ -371,7 +389,6 @@ class Camera2SlowMoController(
             getCurrentAeFpsRange()?.let { r -> if (r.lower == r.upper) set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, r) }
             set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
 
-            // HQ hints (device may ignore)
             set(CaptureRequest.COLOR_CORRECTION_ABERRATION_MODE, CaptureRequest.COLOR_CORRECTION_ABERRATION_MODE_HIGH_QUALITY)
             set(CaptureRequest.SHADING_MODE, CaptureRequest.SHADING_MODE_HIGH_QUALITY)
             set(CaptureRequest.HOT_PIXEL_MODE, CaptureRequest.HOT_PIXEL_MODE_HIGH_QUALITY)
@@ -385,11 +402,10 @@ class Camera2SlowMoController(
                 set(CaptureRequest.EDGE_MODE, CaptureRequest.EDGE_MODE_FAST)
             }
 
-            if (supportsVideoStab()) {
-                set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_ON)
-            } else {
-                set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF)
-            }
+            set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,
+                if (supportsVideoStab()) CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_ON
+                else CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF
+            )
             set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_OFF)
         }
     }
@@ -398,10 +414,22 @@ class Camera2SlowMoController(
         val dev = cameraDevice ?: throw IllegalStateException("Camera not ready")
         return dev.createCaptureRequest(template).apply {
             previewSurface?.let { addTarget(it) }
-            if (includeRecorder) recorderSurface?.let { addTarget(it) }
+            if (includeRecorder && surfaceUsable(recorderSurface)) recorderSurface?.let { addTarget(it) }
             set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
             set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
-            set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
+
+            when (focusState) {
+                FocusState.AUTO -> set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
+                FocusState.MANUAL -> {
+                    set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
+                    set(CaptureRequest.LENS_FOCUS_DISTANCE, focusDistance)
+                    set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_CANCEL)
+                }
+            }
+
+            // Persisted zoom
+            cropRegionForZoom(zoomLevel)?.let { set(CaptureRequest.SCALER_CROP_REGION, it) }
+
             set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, clampEv(aeUpper() + indoorEvBiasSteps))
             set(CaptureRequest.CONTROL_AE_ANTIBANDING_MODE, currentAntibanding)
             val std = pickStd60FpsRange()
@@ -410,11 +438,11 @@ class Camera2SlowMoController(
             set(CaptureRequest.NOISE_REDUCTION_MODE, CaptureRequest.NOISE_REDUCTION_MODE_FAST)
             set(CaptureRequest.EDGE_MODE, CaptureRequest.EDGE_MODE_FAST)
             set(CaptureRequest.TONEMAP_MODE, CaptureRequest.TONEMAP_MODE_HIGH_QUALITY)
-            if (supportsVideoStab()) {
-                set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_ON)
-            } else {
-                set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF)
-            }
+
+            set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,
+                if (supportsVideoStab()) CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_ON
+                else CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF
+            )
             set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_OFF)
         }
     }
@@ -423,11 +451,22 @@ class Camera2SlowMoController(
         val dev = cameraDevice ?: throw IllegalStateException("Camera not ready")
         return dev.createCaptureRequest(template).apply {
             previewSurface?.let { addTarget(it) }
-            if (includeRecorder) recorderSurface?.let { addTarget(it) }
+            if (includeRecorder && surfaceUsable(recorderSurface)) recorderSurface?.let { addTarget(it) }
             set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
             set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
-            set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
-            // Match darker ULL brightness
+
+            when (focusState) {
+                FocusState.AUTO -> set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
+                FocusState.MANUAL -> {
+                    set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
+                    set(CaptureRequest.LENS_FOCUS_DISTANCE, focusDistance)
+                    set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_CANCEL)
+                }
+            }
+
+            // Persisted zoom
+            cropRegionForZoom(zoomLevel)?.let { set(CaptureRequest.SCALER_CROP_REGION, it) }
+
             set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, clampEv(targetEvUllSteps))
             set(CaptureRequest.CONTROL_AE_ANTIBANDING_MODE, currentAntibanding)
 
@@ -438,11 +477,11 @@ class Camera2SlowMoController(
             set(CaptureRequest.NOISE_REDUCTION_MODE, CaptureRequest.NOISE_REDUCTION_MODE_FAST)
             set(CaptureRequest.EDGE_MODE, CaptureRequest.EDGE_MODE_FAST)
             set(CaptureRequest.TONEMAP_MODE, CaptureRequest.TONEMAP_MODE_HIGH_QUALITY)
-            if (supportsVideoStab()) {
-                set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_ON)
-            } else {
-                set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF)
-            }
+
+            set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,
+                if (supportsVideoStab()) CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_ON
+                else CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF
+            )
             set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_OFF)
             set(CaptureRequest.CONTROL_AE_LOCK, false)
             set(CaptureRequest.CONTROL_AWB_LOCK, false)
@@ -532,13 +571,10 @@ class Camera2SlowMoController(
 
         val file = createOutputFile()
         mediaRecorder = MediaRecorder().apply {
-            // AUDIO first
             setAudioSource(MediaRecorder.AudioSource.CAMCORDER)
-
             setVideoSource(MediaRecorder.VideoSource.SURFACE)
             setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
 
-            // Audio
             setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
             setAudioSamplingRate(48_000)
             setAudioEncodingBitRate(128_000)
@@ -546,27 +582,21 @@ class Camera2SlowMoController(
 
             setOutputFile(file.absolutePath)
 
-            // Codec: use AVC for ULL; allow HEVC elsewhere
+            // Codec: AVC for ULL; HEVC elsewhere if available
             val usingHevc = if (useHevcIfAvailable && pipeline != Pipeline.ULL15_30) trySetHevc(this) else false
-            if (!usingHevc) {
-                setVideoEncoder(MediaRecorder.VideoEncoder.H264) // "avc1"
-            }
+            if (!usingHevc) setVideoEncoder(MediaRecorder.VideoEncoder.H264)
 
-            // FPS
             val outFps = if (pipeline == Pipeline.ULL15_30) 15 else encodeFpsForOutput
             setVideoFrameRate(outFps)
 
-            // SIZE — always use opt.size (via activeSize/currentSize)
             val sz = currentSize()
             val (encW, encH) = ensureEven(sz.width, sz.height)
             setVideoSize(encW, encH)
 
-            // Bitrate per pipeline (scales with size & fps)
             val bpp = when (pipeline) {
-                Pipeline.ULL15_30 -> 0.16  // consider 0.18 for a touch more detail
+                Pipeline.ULL15_30 -> 0.16
                 Pipeline.STD60    -> 0.20
-                Pipeline.HFR      ->
-                    if (envState == Env.OUTDOOR) 0.24 else 0.20
+                Pipeline.HFR      -> if (envState == Env.OUTDOOR) 0.24 else 0.20
             }
             val targetBitrate = (encW.toLong() * encH.toLong() * outFps * bpp).toInt().coerceAtLeast(1_200_000)
             setVideoEncodingBitRate(targetBitrate)
@@ -576,6 +606,7 @@ class Camera2SlowMoController(
         }
 
         recorderSurface = mediaRecorder!!.surface
+        isRecording = true // mark recording before session creation
         closeSessionSync()
 
         when (pipeline) {
@@ -654,15 +685,20 @@ class Camera2SlowMoController(
         }
     }
 
-    private fun mediaRecorderFrameRate(): Int {
-        return if (pipeline == Pipeline.ULL15_30) 15 else encodeFpsForOutput
-    }
+    private fun mediaRecorderFrameRate(): Int = if (pipeline == Pipeline.ULL15_30) 15 else encodeFpsForOutput
 
     fun stopRecording(onSaved: (Uri) -> Unit, onError: (Throwable) -> Unit) {
         try { captureSession?.stopRepeating() } catch (_: Exception) {}
         var err: Throwable? = null
         try { mediaRecorder?.stop() } catch (e: Exception) { err = e }
         try { mediaRecorder?.reset() } catch (_: Exception) {}
+
+        // clear recording state/surfaces BEFORE rebuilding preview
+        isRecording = false
+        try { mediaRecorder?.release() } catch (_: Exception) {}
+        mediaRecorder = null
+        recorderSurface = null
+
         val f = outputFile
         if (err != null) onError(err!!)
         else if (f != null && f.exists()) {
@@ -674,8 +710,7 @@ class Camera2SlowMoController(
             )
             onSaved(Uri.fromFile(f))
         } else onError(IllegalStateException("No output file"))
-        try { mediaRecorder?.release() } catch (_: Exception) {}
-        mediaRecorder = null
+
         option?.let { runCatching {
             when (pipeline) {
                 Pipeline.HFR      -> configurePreviewHfr(it) {}
@@ -695,8 +730,11 @@ class Camera2SlowMoController(
             try { deviceClosedLatch?.await(500, TimeUnit.MILLISECONDS) } catch (_: InterruptedException) {}
             deviceClosedLatch = null
         }
-        mediaRecorder?.release(); mediaRecorder = null
-        previewSurface = null; recorderSurface = null
+        try { mediaRecorder?.release() } catch (_: Exception) {}
+        mediaRecorder = null
+        previewSurface = null
+        recorderSurface = null
+        isRecording = false
         stop()
     }
 
@@ -722,27 +760,71 @@ class Camera2SlowMoController(
     // ---------- EV reapply ----------
     private fun setCurrentEv(evSteps: Int) {
         currentEvSteps = clampEv(evSteps)
+        reapplyRepeating("setCurrentEv")
+        Log.d(TAG, "EV applied: $currentEvSteps")
+    }
+
+    // ---------- Focus API (persisting) ----------
+    fun enableAutoFocus() {
+        focusState = FocusState.AUTO
+        reapplyRepeating("enableAutoFocus")
+    }
+
+    fun setManualFocus(distance: Float) {
+        focusState = FocusState.MANUAL
+        focusDistance = distance
+        reapplyRepeating("setManualFocus")
+    }
+
+    // ---------- Zoom API (persisting) ----------
+    fun setZoomLevel(zoom: Float) {
+        val newZoom = zoom.coerceAtLeast(1f).coerceAtMost(maxDigitalZoom.coerceAtLeast(1f))
+        if (abs(newZoom - zoomLevel) < 0.001f) return
+        zoomLevel = newZoom
+        Log.d(TAG, "Zoom set → $zoomLevel (max=$maxDigitalZoom)")
+        reapplyRepeating("setZoomLevel")
+    }
+
+    private fun reapplyRepeating(reason: String) {
         val session = captureSession ?: return
+        if (!surfaceUsable(previewSurface)) {
+            Log.w(TAG, "reapplyRepeating skipped ($reason): preview surface not usable")
+            return
+        }
+        if (isRecording && !surfaceUsable(recorderSurface)) {
+            Log.w(TAG, "Recorder surface not usable; downgrading to preview-only")
+            isRecording = false
+            recorderSurface = null
+        }
         try {
             when (pipeline) {
                 Pipeline.HFR -> {
                     val hs = session as? CameraConstrainedHighSpeedCaptureSession ?: return
-                    val builder = buildHfrRequest(CameraDevice.TEMPLATE_RECORD, includeRecorder = recorderSurface != null)
-                    val burst = hs.createHighSpeedRequestList(builder.build())
+                    val b = buildHfrRequest(
+                        if (isRecording) CameraDevice.TEMPLATE_RECORD else CameraDevice.TEMPLATE_PREVIEW,
+                        includeRecorder = isRecording
+                    )
+                    val burst = hs.createHighSpeedRequestList(b.build())
                     hs.setRepeatingBurst(burst, captureCallback, camHandler)
                 }
                 Pipeline.STD60 -> {
-                    val builder = buildStd60Request(CameraDevice.TEMPLATE_RECORD, includeRecorder = recorderSurface != null)
-                    session.setRepeatingRequest(builder.build(), captureCallback, camHandler)
+                    val b = buildStd60Request(
+                        if (isRecording) CameraDevice.TEMPLATE_RECORD else CameraDevice.TEMPLATE_PREVIEW,
+                        includeRecorder = isRecording
+                    )
+                    session.setRepeatingRequest(b.build(), captureCallback, camHandler)
                 }
                 Pipeline.ULL15_30 -> {
-                    val builder = buildUll15_30Request(CameraDevice.TEMPLATE_RECORD, includeRecorder = recorderSurface != null)
-                    session.setRepeatingRequest(builder.build(), captureCallback, camHandler)
+                    val b = buildUll15_30Request(
+                        if (isRecording) CameraDevice.TEMPLATE_RECORD else CameraDevice.TEMPLATE_PREVIEW,
+                        includeRecorder = isRecording
+                    )
+                    session.setRepeatingRequest(b.build(), captureCallback, camHandler)
                 }
             }
-            Log.d(TAG, "EV applied: $currentEvSteps")
+            Log.d(TAG, "Reapplied repeating ($reason) isRecording=$isRecording zoom=$zoomLevel focus=$focusState dist=$focusDistance")
         } catch (e: Exception) {
-            Log.e(TAG, "setCurrentEv failed", e)
+            Log.e(TAG, "reapplyRepeating failed ($reason)", e)
         }
     }
 
@@ -785,80 +867,74 @@ class Camera2SlowMoController(
 
     private fun handleEnvironmentHeuristics(result: TotalCaptureResult) {
         val expNs = result.get(CaptureResult.SENSOR_EXPOSURE_TIME) ?: return
-        theLoop@ run {
-            val iso = result.get(CaptureResult.SENSOR_SENSITIVITY) ?: return
-            val hfrFrameTimeNs = (1_000_000_000.0 / targetFpsForBudget).toLong().coerceAtLeast(1)
-            val frac = expNs.toDouble() / hfrFrameTimeNs.toDouble()
+        val iso = result.get(CaptureResult.SENSOR_SENSITIVITY) ?: return
+        val hfrFrameTimeNs = (1_000_000_000.0 / targetFpsForBudget).toLong().coerceAtLeast(1)
+        val frac = expNs.toDouble() / hfrFrameTimeNs.toDouble()
 
-            when (envState) {
-                Env.OUTDOOR -> {
-                    if (preferHfrOutdoors &&
-                        frac < outdoorFracThreshAggressive &&
-                        iso  <= outdoorIsoThreshAggressive) {
-                        dwellOutdoor++
-                        if (dwellOutdoor >= dwellOutdoorFastThreshold) {
-                            if (pipeline != Pipeline.HFR) {
-                                switchToHfr()
-                                Log.d(TAG, "AutoSun: OUTDOOR bright → HFR (frac=${"%.2f".format(frac)} iso=$iso)")
-                            } else {
-                                setCurrentEv(clampEv(outdoorEvBiasSteps))
-                            }
-                            dwellOutdoor = 0
-                        }
-                    } else dwellOutdoor = 0
-
-                    when {
-                        frac > veryDarkFracThresh && iso >= veryDarkIsoThresh -> {
-                            dwellVeryDark++; dwellIndoor = 0
-                            if (dwellVeryDark >= dwellThreshold) {
-                                switchToUll15_30()
-                                envState = Env.VERY_DARK
-                                dwellVeryDark = 0
-                            }
-                        }
-                        frac > indoorFracThresh && iso >= indoorIsoThresh -> {
-                            dwellIndoor++; dwellVeryDark = 0
-                            if (dwellIndoor >= dwellThreshold) {
-                                switchToStd60()
-                                envState = Env.INDOOR
-                                dwellIndoor = 0
-                            }
-                        }
-                    }
-                }
-                Env.INDOOR -> {
-                    if (preferHfrOutdoors &&
-                        frac < outdoorFracThreshAggressive &&
-                        iso  <= outdoorIsoThreshAggressive) {
-                        dwellOutdoor++
-                        if (dwellOutdoor >= dwellOutdoorFastThreshold) {
+        when (envState) {
+            Env.OUTDOOR -> {
+                if (preferHfrOutdoors && frac < outdoorFracThreshAggressive && iso <= outdoorIsoThreshAggressive) {
+                    dwellOutdoor++
+                    if (dwellOutdoor >= dwellOutdoorFastThreshold) {
+                        if (pipeline != Pipeline.HFR) {
                             switchToHfr()
-                            envState = Env.OUTDOOR
-                            dwellOutdoor = 0
-                            Log.d(TAG, "AutoSun: INDOOR→OUTDOOR bright → HFR (frac=${"%.2f".format(frac)} iso=$iso)")
-                            return
+                            Log.d(TAG, "AutoSun: OUTDOOR bright → HFR (frac=${"%.2f".format(frac)} iso=$iso)")
+                        } else {
+                            setCurrentEv(clampEv(outdoorEvBiasSteps))
                         }
-                    } else dwellOutdoor = 0
+                        dwellOutdoor = 0
+                    }
+                } else dwellOutdoor = 0
 
-                    if (frac > veryDarkFracThresh && iso >= veryDarkIsoThresh) {
-                        dwellVeryDark++
+                when {
+                    frac > veryDarkFracThresh && iso >= veryDarkIsoThresh -> {
+                        dwellVeryDark++; dwellIndoor = 0
                         if (dwellVeryDark >= dwellThreshold) {
                             switchToUll15_30()
                             envState = Env.VERY_DARK
                             dwellVeryDark = 0
                         }
                     }
-                }
-                Env.VERY_DARK -> {
-                    if (frac < indoorFracThresh && iso <= indoorIsoThresh) {
-                        dwellIndoor++
+                    frac > indoorFracThresh && iso >= indoorIsoThresh -> {
+                        dwellIndoor++; dwellVeryDark = 0
                         if (dwellIndoor >= dwellThreshold) {
                             switchToStd60()
                             envState = Env.INDOOR
                             dwellIndoor = 0
                         }
-                    } else dwellIndoor = 0
+                    }
                 }
+            }
+            Env.INDOOR -> {
+                if (preferHfrOutdoors && frac < outdoorFracThreshAggressive && iso <= outdoorIsoThreshAggressive) {
+                    dwellOutdoor++
+                    if (dwellOutdoor >= dwellOutdoorFastThreshold) {
+                        switchToHfr()
+                        envState = Env.OUTDOOR
+                        dwellOutdoor = 0
+                        Log.d(TAG, "AutoSun: INDOOR→OUTDOOR bright → HFR (frac=${"%.2f".format(frac)} iso=$iso)")
+                        return
+                    }
+                } else dwellOutdoor = 0
+
+                if (frac > veryDarkFracThresh && iso >= veryDarkIsoThresh) {
+                    dwellVeryDark++
+                    if (dwellVeryDark >= dwellThreshold) {
+                        switchToUll15_30()
+                        envState = Env.VERY_DARK
+                        dwellVeryDark = 0
+                    }
+                }
+            }
+            Env.VERY_DARK -> {
+                if (frac < indoorFracThresh && iso <= indoorIsoThresh) {
+                    dwellIndoor++
+                    if (dwellIndoor >= dwellThreshold) {
+                        switchToStd60()
+                        envState = Env.INDOOR
+                        dwellIndoor = 0
+                    }
+                } else dwellIndoor = 0
             }
         }
     }
@@ -917,114 +993,17 @@ class Camera2SlowMoController(
 
     fun setIndoorBrightnessBias(evStepsBelowMax: Int) {
         indoorEvBiasSteps = evStepsBelowMax
-        if (pipeline != Pipeline.HFR) {
-            setCurrentEv(clampEv(aeUpper() + indoorEvBiasSteps))
-        }
-        Log.d(TAG, "Indoor EV bias set to $indoorEvBiasSteps")
+        if (pipeline != Pipeline.HFR) setCurrentEv(clampEv(aeUpper() + indoorEvBiasSteps))
     }
 
     fun setUllRangePreferences(minLower: Int = 15, maxUpper: Int = 30) {
         ullMinLowerTarget = minLower
         ullPreferredMaxUpper = maxUpper
         if (pipeline == Pipeline.ULL15_30) {
-            val builder = buildUll15_30Request(CameraDevice.TEMPLATE_RECORD, includeRecorder = recorderSurface != null)
+            val builder = buildUll15_30Request(CameraDevice.TEMPLATE_RECORD, includeRecorder = isRecording)
             captureSession?.setRepeatingRequest(builder.build(), captureCallback, camHandler)
         }
         Log.d(TAG, "ULL range prefs set: minLower=$ullMinLowerTarget, maxUpper=$ullPreferredMaxUpper")
-    }
-
-    // ---------- Focus & Zoom ----------
-    fun enableAutoFocus() {
-        val session = captureSession ?: return
-        try {
-            when (pipeline) {
-                Pipeline.HFR -> {
-                    val hs = session as? CameraConstrainedHighSpeedCaptureSession ?: return
-                    val builder = buildHfrRequest(CameraDevice.TEMPLATE_RECORD, includeRecorder = recorderSurface != null)
-                    val burst = hs.createHighSpeedRequestList(builder.build())
-                    hs.setRepeatingBurst(burst, captureCallback, camHandler)
-                }
-                Pipeline.STD60 -> {
-                    val builder = buildStd60Request(CameraDevice.TEMPLATE_RECORD, includeRecorder = recorderSurface != null)
-                    session.setRepeatingRequest(builder.build(), captureCallback, camHandler)
-                }
-                Pipeline.ULL15_30 -> {
-                    val builder = buildUll15_30Request(CameraDevice.TEMPLATE_RECORD, includeRecorder = recorderSurface != null)
-                    session.setRepeatingRequest(builder.build(), captureCallback, camHandler)
-                }
-            }
-        } catch (e: Exception) { Log.e(TAG, "Enable AF failed", e) }
-    }
-
-    fun setManualFocus(distance: Float) {
-        val session = captureSession ?: return
-        try {
-            when (pipeline) {
-                Pipeline.HFR -> {
-                    val hs = session as? CameraConstrainedHighSpeedCaptureSession ?: return
-                    val builder = buildHfrRequest(CameraDevice.TEMPLATE_RECORD, includeRecorder = recorderSurface != null).apply {
-                        set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
-                        set(CaptureRequest.LENS_FOCUS_DISTANCE, distance)
-                    }
-                    val burst = hs.createHighSpeedRequestList(builder.build())
-                    hs.setRepeatingBurst(burst, captureCallback, camHandler)
-                }
-                Pipeline.STD60 -> {
-                    val builder = buildStd60Request(CameraDevice.TEMPLATE_RECORD, includeRecorder = recorderSurface != null).apply {
-                        set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
-                        set(CaptureRequest.LENS_FOCUS_DISTANCE, distance)
-                    }
-                    session.setRepeatingRequest(builder.build(), captureCallback, camHandler)
-                }
-                Pipeline.ULL15_30 -> {
-                    val builder = buildUll15_30Request(CameraDevice.TEMPLATE_RECORD, includeRecorder = recorderSurface != null).apply {
-                        set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
-                        set(CaptureRequest.LENS_FOCUS_DISTANCE, distance)
-                    }
-                    session.setRepeatingRequest(builder.build(), captureCallback, camHandler)
-                }
-            }
-        } catch (e: Exception) { Log.e(TAG, "Set MF failed", e) }
-    }
-
-    fun setZoomLevel(zoom: Float) {
-        Log.d(TAG, "zoom $zoom")
-        val session = captureSession ?: return
-        val opt = option ?: return
-        try {
-            val chars = manager?.getCameraCharacteristics(opt.cameraId) ?: return
-            val activeRect = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE) ?: return
-            val maxZoom = chars.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM) ?: 1f
-            val clampedZoom = zoom.coerceIn(1f, maxZoom)
-            val cx = activeRect.width() / 2
-            val cy = activeRect.height() / 2
-            val dX = (0.5f * activeRect.width() / clampedZoom).toInt()
-            val dY = (0.5f * activeRect.height() / clampedZoom).toInt()
-            val crop = Rect(cx - dX, cy - dY, cx + dX, cy + dY)
-
-            when (pipeline) {
-                Pipeline.HFR -> {
-                    val hs = session as? CameraConstrainedHighSpeedCaptureSession ?: return
-                    val builder = buildHfrRequest(CameraDevice.TEMPLATE_RECORD, includeRecorder = recorderSurface != null).apply {
-                        set(CaptureRequest.SCALER_CROP_REGION, crop)
-                    }
-                    val burst = hs.createHighSpeedRequestList(builder.build())
-                    hs.setRepeatingBurst(burst, captureCallback, camHandler)
-                }
-                Pipeline.STD60 -> {
-                    val builder = buildStd60Request(CameraDevice.TEMPLATE_RECORD, includeRecorder = recorderSurface != null).apply {
-                        set(CaptureRequest.SCALER_CROP_REGION, crop)
-                    }
-                    session.setRepeatingRequest(builder.build(), captureCallback, camHandler)
-                }
-                Pipeline.ULL15_30 -> {
-                    val builder = buildUll15_30Request(CameraDevice.TEMPLATE_RECORD, includeRecorder = recorderSurface != null).apply {
-                        set(CaptureRequest.SCALER_CROP_REGION, crop)
-                    }
-                    session.setRepeatingRequest(builder.build(), captureCallback, camHandler)
-                }
-            }
-        } catch (e: Exception) { Log.e(TAG, "Zoom failed", e) }
     }
 
     fun setTorch(enabled: Boolean) {
@@ -1036,7 +1015,7 @@ class Camera2SlowMoController(
         } catch (e: Exception) { Log.e(TAG, "Torch control failed", e) }
     }
 
-    // ------ ULL recorder size picker (kept for reference but unused now) ------
+    // ------ ULL recorder size picker (unused now; kept for reference) ------
     private fun pickUllRecordSizePrefer848x480(): Size {
         val camId = option?.cameraId ?: return Size(720, 480)
         val chars = manager?.getCameraCharacteristics(camId) ?: return Size(720, 480)

@@ -123,7 +123,7 @@ class HybridSlowMoController(
         camera2Controller?.setPreferHfrOutdoors(true)   // smoother and sharper outdoors
         camera2Controller?.setOutdoorBrightnessBias(-3) // Footej-like darker sunlight
         camera2Controller?.setIndoorBrightnessBias(-3)  // keep indoor ULL slightly dimmer to reduce blur
-        camera2Controller?.setZoomLevel(1.2f)
+
     }
 
     fun release() {
