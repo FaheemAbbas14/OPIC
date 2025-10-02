@@ -771,7 +771,7 @@ class Camera2SlowMoController(
                     context = context,
                     src = srcFile,
                     targetFps = if (pipeline==Pipeline.VERY_DARK) 15 else targetFps.coerceIn(10, 60),
-                    keepAudio = true
+                    keepAudio = false
                 )
             },
             onSaved = onSaved,
