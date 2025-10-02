@@ -8,18 +8,6 @@ import androidx.camera.view.PreviewView
 import androidx.lifecycle.LifecycleOwner
 import com.example.myapplication.model.SlowMoOption
 
-/**
- * Hybrid controller:
- * - CameraX for normal video (<=60fps)
- * - Camera2 for high-speed slow-mo (>60fps)
- *
- * Exposes common API for Activity:
- * - bind(option)
- * - startRecording / stopRecording
- * - release
- * - isReady()
- * - setTorch(), setEv(), onTooDark callback
- */
 class HybridSlowMoController(
     private val context: Context,
     private val lifecycleOwner: LifecycleOwner,
@@ -29,11 +17,9 @@ class HybridSlowMoController(
     private var camera2Controller: Camera2SlowMoController? = null
     private var boundOption: SlowMoOption? = null
 
-    @Volatile
-    private var ready = false
+    @Volatile private var ready = false
     fun isReady() = ready
 
-    /** optional low-light callback (set from Activity) */
     var onTooDark: (() -> Unit)? = null
         set(value) {
             field = value
@@ -47,19 +33,31 @@ class HybridSlowMoController(
         boundOption = option
 
         if (option.fpsRange.upper > 60) {
-            // 🔥 Camera2 path
             Log.d("HybridController", "Binding Camera2 for ${option.label}")
-            camera2Controller = Camera2SlowMoController(context, previewView).also {
-                it.start()
-                it.onTooDark = onTooDark
-                it.setZoomLevel(1.2f)
-                it.bind(option) { e ->
+            camera2Controller = Camera2SlowMoController(context, previewView).also { c ->
+                c.start()
+                c.onTooDark = onTooDark
+                c.setZoomLevel(1.2f)
+
+                // Prefer 120-capable size indoors; brighter than 240
+                c.setAutoSelectBestHfrSize(true)
+                c.setAutoTorchEnabled(false)
+                c.setIndoorHfrBaseBias(evSteps = 6, maxAutoDelta = 6)
+                c.setMainsHz(50) // set 60 if applicable
+
+                c.bind(option) { e ->
                     Log.e("HybridController", "Camera2 bind error: ${e.message}", e)
                     onError(e)
                 }
+
+                // Let controller auto-switch HFR<->STD60 and auto-adjust EV
+                c.setAutoEnvironmentMode(true)
+                c.setAutoExposureBias(true)
+                // Optional: preview lift tweaks
+                c.setPreviewBoostEnabled(true)
+                c.setPostRawBoost(true, 240)
             }
         } else {
-            // ✅ CameraX path
             Log.d("HybridController", "Binding CameraX for ${option.label}")
             cameraXController = CameraXSlowMoController(context, lifecycleOwner, previewView).also {
                 it.bind(option)
@@ -69,7 +67,7 @@ class HybridSlowMoController(
     }
 
     fun startRecording(
-        withAudio: Boolean = false,
+        withAudio: Boolean = true,
         onStarted: () -> Unit = {},
         onSaved: (Uri) -> Unit,
         onError: (Throwable) -> Unit
@@ -77,9 +75,9 @@ class HybridSlowMoController(
         boundOption?.let { opt ->
             if (opt.fpsRange.upper > 60) {
                 camera2Controller?.startRecording(
-                    onStarted = { onStarted() },
-                    onSaved = { uri -> onSaved(uri) },
-                    onError = { e -> onError(e) }
+                    onStarted = onStarted,
+                    onSaved = onSaved,
+                    onError = onError
                 )
             } else {
                 cameraXController?.startRecording(
@@ -94,37 +92,30 @@ class HybridSlowMoController(
 
     fun stopRecording(
         onSaved: (Uri) -> Unit = {},
-        onError: (Throwable) -> Unit = {}
+        onError: (Throwable) -> Unit = {},
+        slowMoPlaybackFps: Int? = 30, // 15 or 30; null to keep realtime
+        keepAudio: Boolean = false
     ) {
         boundOption?.let { opt ->
             if (opt.fpsRange.upper > 60) {
-                camera2Controller?.stopRecording(onSaved, onError)
+                if (slowMoPlaybackFps != null) {
+                    camera2Controller?.stopRecordingWithPlaybackFps(
+                        targetFps = slowMoPlaybackFps,
+                        onSaved = onSaved,
+                        onError = onError,
+                    )
+                } else {
+                    camera2Controller?.stopRecording(onSaved, onError)
+                }
             } else {
                 cameraXController?.stopRecording()
             }
         }
     }
 
-    fun enableAutoFocus() {
-        camera2Controller?.enableAutoFocus()
-    }
-
-    fun setManualFocus(distance: Float) {
-        camera2Controller?.setManualFocus(distance)
-    }
-
-    fun setZoomLevel(zoom: Float) {
-        camera2Controller?.setZoomLevel(zoom)
-    }
-
-    fun forceIndoorBrightMode(enable: Boolean, mainsHz: Int = 50) {
-        camera2Controller?.forceIndoorBrightMode(enable, mainsHz)  // or 60 depending on your lights
-        camera2Controller?.setUllRangePreferences(minLower = 15, maxUpper = 30)
-        camera2Controller?.setPreferHfrOutdoors(true)   // smoother and sharper outdoors
-        camera2Controller?.setOutdoorBrightnessBias(-3) // Footej-like darker sunlight
-        camera2Controller?.setIndoorBrightnessBias(-3)  // keep indoor ULL slightly dimmer to reduce blur
-
-    }
+    fun enableAutoFocus() { camera2Controller?.enableAutoFocus() }
+    fun setManualFocus(distance: Float) { camera2Controller?.setManualFocus(distance) }
+    fun setZoomLevel(zoom: Float) { camera2Controller?.setZoomLevel(zoom) }
 
     fun release() {
         ready = false

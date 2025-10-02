@@ -430,7 +430,6 @@ class CameraRecordingActivity : ComponentActivity() {
                     detachPreviewFromCameraX(currentPreview)
                     // Give EGL/Surface a moment to detach
                     delay(250)
-
                     // Bind Camera2 high-speed
                     controller.bind(
                         selectedOption!!,
@@ -449,7 +448,6 @@ class CameraRecordingActivity : ComponentActivity() {
                             }
                         }
                     )
-                    controller.forceIndoorBrightMode(true, mainsHz = 50) // BEFORE startRecording
                     controller.onTooDark = {
                         val sixty = options.firstOrNull { it.fpsRange.upper == 60 }
                         if (sixty != null) {
@@ -578,11 +576,16 @@ class CameraRecordingActivity : ComponentActivity() {
                         isRecording && !isPaused -> {
                             if (isSlowMo) {
                                 controller.stopRecording(
+                                    keepAudio = true,
+                                    slowMoPlaybackFps = 30,
                                     onSaved = { uri ->
                                         isRecording = false
                                         Log.d("SlowMoTest", "Finalized video = $uri")
                                         // playBack(uri)
-                                        showMediaPopup(uri)
+                                        Handler(Looper.getMainLooper()).post {
+
+                                            showMediaPopup(uri)
+                                        }
                                     },
                                     onError = { e ->
                                         isRecording = false
@@ -923,6 +926,7 @@ class CameraRecordingActivity : ComponentActivity() {
                 Toast.makeText(this, "Slow-mo not ready yet", Toast.LENGTH_SHORT).show()
                 return
             }
+
             controller.startRecording(
                 onStarted = {
                     isRecording = true
