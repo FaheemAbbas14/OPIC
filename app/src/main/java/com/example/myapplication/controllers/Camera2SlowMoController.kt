@@ -138,6 +138,7 @@ class Camera2SlowMoController(
     private var dwellToIndoor = 0
     private var dwellToVeryDark = 0
     private val dwellConfirm = 3
+    private var isFirstTime=true
 
     // Size selection
     private var autoSelectBestHfrSize = true
@@ -1026,21 +1027,23 @@ class Camera2SlowMoController(
         when (envState) {
             Env.OUTDOOR -> {
                 // leave outdoor if EV drops sufficiently
-                if (evAvg < VERYDARK_ENTER) {
+                if (evAvg < VERYDARK_ENTER && !isRecording) {
                     dwellToVeryDark++
                     dwellToIndoor = 0
                     Log.d(TAG, "dwellToVeryDark=$dwellToVeryDark/$dwellConfirm (OUTDOOR)")
-                    if (dwellToVeryDark >= dwellConfirm) {
+                    if (dwellToVeryDark >= dwellConfirm || isFirstTime) {
+                        isFirstTime=false
                         pipeline = Pipeline.VERY_DARK; rebuildSession(withRecorder = false) {}
                         envState = Env.VERY_DARK
                         dwellToVeryDark = 0
                         logMode("EV switch OUTDOOR→VERY_DARK")
                     }
-                } else if (evAvg < OUTDOOR_EXIT) {
+                } else if (evAvg < OUTDOOR_EXIT && !isRecording) {
                     dwellToIndoor++
                     dwellToVeryDark = 0
                     Log.d(TAG, "dwellToIndoor=$dwellToIndoor/$dwellConfirm (OUTDOOR)")
-                    if (dwellToIndoor >= dwellConfirm) {
+                    if (dwellToIndoor >= dwellConfirm || isFirstTime) {
+                        isFirstTime=false
                         pipeline = Pipeline.STD60; rebuildSession(withRecorder = isRecording) {}
                         envState = Env.INDOOR
                         dwellToIndoor = 0
@@ -1053,10 +1056,11 @@ class Camera2SlowMoController(
 
             Env.INDOOR -> {
                 // go outdoor if EV is high enough
-                if (evAvg >= OUTDOOR_ENTER) {
+                if (evAvg >= OUTDOOR_ENTER && !isRecording) {
                     dwellToOutdoor++
                     Log.d(TAG, "dwellToOutdoor=$dwellToOutdoor/$dwellConfirm (INDOOR)")
-                    if (dwellToOutdoor >= dwellConfirm) {
+                    if (dwellToOutdoor >= dwellConfirm || isFirstTime) {
+                        isFirstTime=false
                         pipeline = Pipeline.HFR; rebuildSession(withRecorder = isRecording) {}
                         envState = Env.OUTDOOR
                         dwellToOutdoor = 0
@@ -1066,10 +1070,11 @@ class Camera2SlowMoController(
                 } else dwellToOutdoor = 0
 
                 // go very dark if EV low enough
-                if (evAvg <= VERYDARK_ENTER) {
+                if (evAvg <= VERYDARK_ENTER && !isRecording) {
                     dwellToVeryDark++
                     Log.d(TAG, "dwellToVeryDark=$dwellToVeryDark/$dwellConfirm (INDOOR)")
-                    if (dwellToVeryDark >= dwellConfirm) {
+                    if (dwellToVeryDark >= dwellConfirm || isFirstTime) {
+                        isFirstTime=false
                         pipeline = Pipeline.VERY_DARK; rebuildSession(withRecorder = false) {}
                         envState = Env.VERY_DARK
                         dwellToVeryDark = 0
@@ -1080,10 +1085,11 @@ class Camera2SlowMoController(
 
             Env.VERY_DARK -> {
                 // leave very dark toward indoor first
-                if (evAvg > VERYDARK_EXIT) {
+                if (evAvg > VERYDARK_EXIT && !isRecording) {
                     dwellToIndoor++
                     Log.d(TAG, "dwellToIndoor=$dwellToIndoor/$dwellConfirm (VERY_DARK)")
-                    if (dwellToIndoor >= dwellConfirm) {
+                    if (dwellToIndoor >= dwellConfirm || isFirstTime) {
+                        isFirstTime=false
                         pipeline = Pipeline.STD60; rebuildSession(withRecorder = isRecording) {}
                         envState = Env.INDOOR
                         dwellToIndoor = 0
