@@ -109,36 +109,31 @@ class Camera2SlowMoController(
     private val isoHigh = 800
     private val isoNearMin = 120
 
-    // -------- NEW: EV100-based environment classifier (robust to fixed frac ~ 1.0) --------
-    // EV100 = log2( (aperture^2) / t * (100 / ISO) )
-    // Typical thresholds (approx):
-    //  - OUTDOOR sunlight ~ 14-15 EV100
-    //  - Bright indoor ~ 9-11 EV100
-    //  - Very dark < 7-8 EV100
+    // EV100-based environment classifier
     private var lensAperture: Float = 1.8f
     private val evBuf = DoubleArray(12) { 0.0 }
     private var evBufCount = 0
     private var evBufIdx = 0
     private fun pushEv(ev: Double) {
-        evBuf[evBufIdx] = ev; evBufIdx =
-            (evBufIdx + 1) % evBuf.size; if (evBufCount < evBuf.size) evBufCount++
+        evBuf[evBufIdx] = ev
+        evBufIdx = (evBufIdx + 1) % evBuf.size
+        if (evBufCount < evBuf.size) evBufCount++
     }
-
     private fun avgEv(): Double =
         if (evBufCount == 0) 0.0 else (0 until evBufCount).sumOf { evBuf[it] } / evBufCount.toDouble()
 
     // Hysteresis thresholds
-    private val OUTDOOR_ENTER = 12.0   // go to OUTDOOR when avg EV >= this
-    private val OUTDOOR_EXIT = 10.5   // leave OUTDOOR when avg EV < this
-    private val VERYDARK_ENTER = 6.5   // go to VERY_DARK when avg EV <= this
-    private val VERYDARK_EXIT = 7.5   // leave VERY_DARK when avg EV > this
+    private val OUTDOOR_ENTER = 12.0
+    private val OUTDOOR_EXIT = 10.5
+    private val VERYDARK_ENTER = 6.5
+    private val VERYDARK_EXIT = 7.5
 
     // Dwell counters to avoid flapping
     private var dwellToOutdoor = 0
     private var dwellToIndoor = 0
     private var dwellToVeryDark = 0
     private val dwellConfirm = 3
-    private var isFirstTime=true
+    private var isFirstTime = true
 
     // Size selection
     private var autoSelectBestHfrSize = true
@@ -152,7 +147,6 @@ class Camera2SlowMoController(
 
     // Focus/zoom
     private enum class FocusState { AUTO, MANUAL }
-
     private var focusState: FocusState = FocusState.AUTO
     private var focusDistance: Float = 0f
     private var zoomLevel: Float = 1.2f
@@ -160,7 +154,7 @@ class Camera2SlowMoController(
     private var activeArrayRect: Rect? = null
 
     // Indoor HFR brightness policy
-    private var indoorHfrBaseEv = +6          // tuned higher for indoor
+    private var indoorHfrBaseEv = +6
     private var maxAutoEvDelta = +6
     private var autoTorchEnabled = false
     private var torchOn = false
@@ -169,7 +163,6 @@ class Camera2SlowMoController(
     private var allowPostRawBoost = true
     private var postRawBoostValue = 200
 
-    // --- add with the other env/behavior knobs
     private var preferHfrOutdoors: Boolean = true
 
     // UI hook
@@ -178,55 +171,36 @@ class Camera2SlowMoController(
     // Debug helpers
     private fun clampEv(ev: Int): Int = aeCompRange?.let { ev.coerceIn(it.lower, it.upper) } ?: ev
     private fun aeUpper(): Int = aeCompRange?.upper ?: 6
-
     private fun surfaceUsable(s: Surface?): Boolean = s != null && s.isValid
     private fun sessionContains(surface: Surface?): Boolean =
         surface != null && sessionTargets.contains(surface)
 
     // ===== Public API =====
-    fun setAutoSelectBestHfrSize(enabled: Boolean) {
-        autoSelectBestHfrSize = enabled
-    }
-
-    fun setPreferHfrOutdoors(enabled: Boolean) {
-        preferHfrOutdoors = enabled
-    }
-
-    fun setPreviewBoostEnabled(enabled: Boolean) {
-        wantTonemapBoost = enabled; reapplyRepeating("togglePreviewBoost")
-    }
-
-    fun setPostRawBoost(enabled: Boolean, value: Int = 200) {
-        allowPostRawBoost = enabled; postRawBoostValue =
-            value; reapplyRepeating("togglePostRawBoost")
-    }
-
-    fun setAutoTorchEnabled(enabled: Boolean) {
-        autoTorchEnabled = enabled; if (!enabled && torchOn) setTorch(false)
-    }
-
+    fun setAutoSelectBestHfrSize(enabled: Boolean) { autoSelectBestHfrSize = enabled }
+    fun setPreferHfrOutdoors(enabled: Boolean) { preferHfrOutdoors = enabled }
+    fun setPreviewBoostEnabled(enabled: Boolean) { wantTonemapBoost = enabled; reapplyRepeating("togglePreviewBoost") }
+    fun setPostRawBoost(enabled: Boolean, value: Int = 200) { allowPostRawBoost = enabled; postRawBoostValue = value; reapplyRepeating("togglePostRawBoost") }
+    fun setAutoTorchEnabled(enabled: Boolean) { autoTorchEnabled = enabled; if (!enabled && torchOn) setTorch(false) }
     fun setIndoorHfrBaseBias(evSteps: Int, maxAutoDelta: Int = 6) {
         indoorHfrBaseEv = clampEv(evSteps); maxAutoEvDelta = maxAutoDelta.coerceIn(0, 6)
         Log.d(TAG, "Indoor HFR base EV bias set to $indoorHfrBaseEv")
         if (pipeline == Pipeline.HFR && envState == Env.INDOOR) setCurrentEv(0)
     }
-
     fun setMainsHz(hz: Int) {
         currentAntibanding = when (hz) {
-            50 -> CaptureRequest.CONTROL_AE_ANTIBANDING_MODE_50HZ; 60 -> CaptureRequest.CONTROL_AE_ANTIBANDING_MODE_60HZ; else -> CaptureRequest.CONTROL_AE_ANTIBANDING_MODE_AUTO
+            50 -> CaptureRequest.CONTROL_AE_ANTIBANDING_MODE_50HZ
+            60 -> CaptureRequest.CONTROL_AE_ANTIBANDING_MODE_60HZ
+            else -> CaptureRequest.CONTROL_AE_ANTIBANDING_MODE_AUTO
         }
         reapplyRepeating("setMainsHz=$hz")
     }
-
     fun setAutoEnvironmentMode(enabled: Boolean) {
-        autoEnvironmentMode = enabled; Log.d(
-            TAG,
-            "Auto environment ${if (enabled) "enabled" else "disabled"}"
-        )
+        autoEnvironmentMode = enabled
+        Log.d(TAG, "Auto environment ${if (enabled) "enabled" else "disabled"}")
     }
-
     fun setAutoExposureBias(enabled: Boolean) {
-        autoEvEnabled = enabled; Log.d(TAG, "Auto EV ${if (enabled) "enabled" else "disabled"}")
+        autoEvEnabled = enabled
+        Log.d(TAG, "Auto EV ${if (enabled) "enabled" else "disabled"}")
     }
 
     // Lifecycle
@@ -235,7 +209,6 @@ class Camera2SlowMoController(
         camThread = HandlerThread("Camera2SlowMo").also { it.start() }
         camHandler = Handler(camThread!!.looper)
     }
-
     fun stop() {
         camThread?.quitSafely(); camThread = null; camHandler = null
     }
@@ -252,26 +225,23 @@ class Camera2SlowMoController(
             if (chars != null) {
                 aeCompRange = chars.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE)
                 activeArrayRect = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
-                maxDigitalZoom =
-                    chars.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM) ?: 1f
+                maxDigitalZoom = chars.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM) ?: 1f
                 zoomLevel = zoomLevel.coerceIn(1f, maxDigitalZoom.coerceAtMost(5f))
-                activeSize =
-                    if (autoSelectBestHfrSize) pickBestHfrSize(chars, opt.size) else opt.size
+                activeSize = if (autoSelectBestHfrSize) pickBestHfrSize(chars, opt.size) else opt.size
 
-                // NEW: read lens aperture for EV100 computation
+                // lens aperture for EV100 computation
                 val apertures = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_APERTURES)
                 if (apertures != null && apertures.isNotEmpty()) {
                     lensAperture = apertures.minOrNull() ?: apertures[0]
                 }
-
                 Log.d(TAG, "Aperture set for EV100: f/$lensAperture")
-            } else activeSize = opt.size
+            } else {
+                activeSize = opt.size
+            }
 
             currentEvDelta = 0
             targetFpsForBudget =
-                max(getSupportedHighSpeedRange(opt)?.upper ?: 0, opt.fpsRange.upper).coerceAtLeast(
-                    60
-                )
+                max(getSupportedHighSpeedRange(opt)?.upper ?: 0, opt.fpsRange.upper).coerceAtLeast(60)
 
             previewSurface = waitForPreviewSurface(currentSize(), 1200)
                 ?: return onError(IllegalStateException("Preview surface not ready"))
@@ -282,35 +252,20 @@ class Camera2SlowMoController(
                     logRecorderSizesOnce()
                     if (getSupportedHighSpeedRange(opt) != null) {
                         pipeline = Pipeline.HFR
-                        rebuildSession(withRecorder = false) { e ->
-                            Log.e(
-                                TAG,
-                                "HFR preview failed",
-                                e
-                            ); onError(e)
-                        }
+                        rebuildSession(withRecorder = false) { e -> Log.e(TAG, "HFR preview failed", e); onError(e) }
                     } else {
                         pipeline = Pipeline.STD60
-                        rebuildSession(withRecorder = false) { e ->
-                            Log.e(
-                                TAG,
-                                "STD preview failed",
-                                e
-                            ); onError(e)
-                        }
+                        rebuildSession(withRecorder = false) { e -> Log.e(TAG, "STD preview failed", e); onError(e) }
                     }
                     logMode("onOpened")
                 }
-
                 override fun onDisconnected(device: CameraDevice) {
                     device.close(); cameraDevice = null; ready = false
                 }
-
                 override fun onError(device: CameraDevice, error: Int) {
-                    device.close(); cameraDevice = null; ready =
-                        false; onError(RuntimeException("Camera2 error $error"))
+                    device.close(); cameraDevice = null; ready = false
+                    onError(RuntimeException("Camera2 error $error"))
                 }
-
                 override fun onClosed(device: CameraDevice) {
                     deviceClosedLatch?.countDown()
                 }
@@ -320,37 +275,44 @@ class Camera2SlowMoController(
         }
     }
 
-    // ---- Size picker (favor 120 for indoor) ----
+    // ===== FPS helpers bound to SlowMoOption =====
+    private fun desiredFixedFps(): Int {
+        return option?.fpsRange?.upper ?: 120
+    }
+
+    // ---- Size picker (binds to desiredFixedFps, no hardcoded tiers) ----
     private fun pickBestHfrSize(chars: CameraCharacteristics, fallback: Size): Size {
-        val map =
-            chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return fallback
-        val hsSizes = try {
-            map.highSpeedVideoSizes
-        } catch (_: Throwable) {
-            null
-        } ?: return fallback
+        val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return fallback
+        val hsSizes = try { map.highSpeedVideoSizes } catch (_: Throwable) { null } ?: return fallback
+
+        val wantFps = desiredFixedFps()
         val desiredAspect = if (preferAspectFromOption) aspect(fallback) else null
-        fun supportsFixedFps(sz: Size, atLeast: Int): Boolean {
-            return (map.getHighSpeedVideoFpsRangesFor(sz)
-                ?: return false).any { it.lower == it.upper && it.upper >= atLeast }
+
+        fun bestFixedFor(sz: Size, atLeast: Int): Int? {
+            val ranges = map.getHighSpeedVideoFpsRangesFor(sz) ?: return null
+            val fixed = ranges.filter { it.lower == it.upper }.map { it.upper }
+            if (fixed.isEmpty()) return null
+            val ge = fixed.filter { it >= atLeast }
+            return ge.minOrNull() ?: fixed.maxOrNull()
         }
 
-        val tier240 = hsSizes.filter { supportsFixedFps(it, 240) }
-        val tier120 = hsSizes.filter { supportsFixedFps(it, 120) && !supportsFixedFps(it, 240) }
-        val candidates = when {
-            tier120.isNotEmpty() -> tier120     // bias 120 first (indoor-friendly)
-            tier240.isNotEmpty() -> tier240
-            else -> hsSizes.toList()
+        data class Cand(val size: Size, val bestFixed: Int)
+        val cands = hsSizes.mapNotNull { sz ->
+            val best = bestFixedFor(sz, wantFps) ?: return@mapNotNull null
+            Cand(sz, best)
         }
-        val ranked = candidates.sortedWith(
-            compareBy<Size> { sz -> if (desiredAspect == null) 0.0 else abs(aspect(sz) - desiredAspect) }
-                .thenByDescending { it.width * it.height }
+        if (cands.isEmpty()) return fallback
+
+        val (geDesired, ltDesired) = cands.partition { it.bestFixed >= wantFps }
+        val ranked = (if (geDesired.isNotEmpty()) geDesired else ltDesired).sortedWith(
+            compareBy<Cand> {
+                if (desiredAspect == null) 0.0 else abs(aspect(it.size) - desiredAspect)
+            }.thenByDescending { it.size.width * it.size.height }
+                .thenByDescending { it.bestFixed }
         )
-        val pick = ranked.firstOrNull() ?: fallback
-        Log.d(
-            TAG,
-            "AutoSize pick: ${pick.width}x${pick.height} (fallback=${fallback.width}x${fallback.height}) prefFps=null"
-        )
+
+        val pick = ranked.first().size
+        Log.d(TAG, "AutoSize pick: ${pick.width}x${pick.height} (wantFixedFps=$wantFps)")
         return pick
     }
 
@@ -359,10 +321,7 @@ class Camera2SlowMoController(
     // ---- Surface wait ----
     private fun waitForPreviewSurface(size: Size, timeoutMs: Long): Surface? {
         val end = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs)
-        try {
-            previewView.implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-        } catch (_: Throwable) {
-        }
+        try { previewView.implementationMode = PreviewView.ImplementationMode.COMPATIBLE } catch (_: Throwable) {}
         while (System.nanoTime() < end) {
             for (i in 0 until previewView.childCount) {
                 val v = previewView.getChildAt(i)
@@ -374,7 +333,6 @@ class Camera2SlowMoController(
                             return Surface(st)
                         }
                     }
-
                     is android.view.SurfaceView -> v.holder?.surface?.let { if (it.isValid) return it }
                 }
             }
@@ -388,27 +346,21 @@ class Camera2SlowMoController(
         val chars = manager?.getCameraCharacteristics(opt.cameraId) ?: return null
         val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return null
         val supported = map.getHighSpeedVideoFpsRangesFor(currentSize()) ?: return null
+        val wantFps = desiredFixedFps()
+
         val fixed = supported.filter { it.lower == it.upper }
-        val best240 = fixed.filter { it.upper >= 240 }.maxByOrNull { it.upper }
-        val best120 = fixed.filter { it.upper in 120..239 }.maxByOrNull { it.upper }
-        return best120 ?: best240 ?: fixed.maxByOrNull { it.upper }
-        ?: supported.maxByOrNull { it.upper }
+        if (fixed.isNotEmpty()) {
+            val ge = fixed.filter { it.upper >= wantFps }
+            return ge.minByOrNull { it.upper } ?: fixed.maxByOrNull { it.upper }
+        }
+        // fallback: closest upper to want
+        return supported.minByOrNull { abs(it.upper - wantFps) }
     }
 
     private fun getAvailableNormalFpsRanges(): Array<Range<Int>> {
         val chars = manager?.getCameraCharacteristics(option?.cameraId ?: return emptyArray())
             ?: return emptyArray()
-        return chars.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
-            ?: emptyArray()
-    }
-
-    private fun pickLowLightFpsRange(prefMax: Int = 30, minLower: Int = 15): Range<Int>? {
-        val ranges = getAvailableNormalFpsRanges(); if (ranges.isEmpty()) return null
-        val good = ranges.filter { it.upper <= prefMax && it.lower >= minLower }
-        if (good.isNotEmpty()) return good.minByOrNull { it.lower }
-        val capped = ranges.filter { it.upper <= prefMax }
-        if (capped.isNotEmpty()) return capped.minByOrNull { it.lower }
-        return ranges.minByOrNull { it.lower }
+        return chars.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES) ?: emptyArray()
     }
 
     private fun pickStd60FpsRange(): Range<Int>? {
@@ -422,14 +374,13 @@ class Camera2SlowMoController(
     private fun getCurrentAeFpsRange(): Range<Int>? = when (pipeline) {
         Pipeline.HFR -> option?.let { getSupportedHighSpeedRange(it) }
         Pipeline.STD60 -> pickStd60FpsRange()
-        Pipeline.VERY_DARK -> Range(60, 60)   // fixed 60 fps
+        Pipeline.VERY_DARK -> Range(60, 60)
     }
 
     private fun supportsVideoStab(): Boolean {
         val camId = option?.cameraId ?: return false
         val chars = manager?.getCameraCharacteristics(camId) ?: return false
-        val modes = chars.get(CameraCharacteristics.CONTROL_AVAILABLE_VIDEO_STABILIZATION_MODES)
-            ?: return false
+        val modes = chars.get(CameraCharacteristics.CONTROL_AVAILABLE_VIDEO_STABILIZATION_MODES) ?: return false
         return modes.contains(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_ON)
     }
 
@@ -437,8 +388,7 @@ class Camera2SlowMoController(
         val sensor = activeArrayRect ?: return null
         val zoom = z.coerceIn(1f, maxDigitalZoom.coerceAtMost(5f))
         if (zoom <= 1f) return sensor
-        val cx = sensor.centerX();
-        val cy = sensor.centerY()
+        val cx = sensor.centerX(); val cy = sensor.centerY()
         val hw = (sensor.width() / (2f * zoom)).toInt()
         val hh = (sensor.height() / (2f * zoom)).toInt()
         return Rect(cx - hw, cy - hh, cx + hw, cy + hh)
@@ -447,16 +397,16 @@ class Camera2SlowMoController(
     // ---- Tonemap curve (preview lift) ----
     private fun makeGammaCurve(g: Float = 0.45f): TonemapCurve {
         fun p(x: Float) = (x.toDouble().pow(1.0 / g)).toFloat().coerceIn(0f, 1f)
-        val steps = 16;
+        val steps = 16
         val rgb = FloatArray(steps * 2)
         for (i in 0 until steps) {
-            val x = i / (steps - 1f);
+            val x = i / (steps - 1f)
             val y = p(x); rgb[2 * i] = x; rgb[2 * i + 1] = y
         }
         return TonemapCurve(rgb, rgb, rgb)
     }
 
-    // ---- Build requests (attach only configured surfaces) ----
+    // ---- Build requests ----
     private fun buildHfrRequest(template: Int, wantRecorder: Boolean): CaptureRequest.Builder {
         val dev = cameraDevice ?: throw IllegalStateException("Camera not ready")
         val includeRecorder = wantRecorder && sessionHasRecorder && sessionContains(recorderSurface)
@@ -469,11 +419,7 @@ class Camera2SlowMoController(
         b.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
 
         when (focusState) {
-            FocusState.AUTO -> b.set(
-                CaptureRequest.CONTROL_AF_MODE,
-                CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO
-            )
-
+            FocusState.AUTO -> b.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
             FocusState.MANUAL -> {
                 b.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
                 b.set(CaptureRequest.LENS_FOCUS_DISTANCE, focusDistance)
@@ -486,12 +432,8 @@ class Camera2SlowMoController(
         val effEv = clampEv(baseEv + currentEvDelta)
         b.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, effEv)
         b.set(CaptureRequest.CONTROL_AE_ANTIBANDING_MODE, currentAntibanding)
-        getCurrentAeFpsRange()?.let { r ->
-            if (r.lower == r.upper) b.set(
-                CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE,
-                r
-            )
-        }
+
+        getCurrentAeFpsRange()?.let { r -> if (r.lower == r.upper) b.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, r) }
         b.set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
 
         if (wantTonemapBoost && tonemapBoostActive) {
@@ -500,10 +442,7 @@ class Camera2SlowMoController(
         } else b.set(CaptureRequest.TONEMAP_MODE, CaptureRequest.TONEMAP_MODE_HIGH_QUALITY)
 
         if (allowPostRawBoost && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            try {
-                b.set(CaptureRequest.CONTROL_POST_RAW_SENSITIVITY_BOOST, postRawBoostValue)
-            } catch (_: Throwable) {
-            }
+            runCatching { b.set(CaptureRequest.CONTROL_POST_RAW_SENSITIVITY_BOOST, postRawBoostValue) }
         }
 
         b.set(
@@ -534,11 +473,7 @@ class Camera2SlowMoController(
         b.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
 
         when (focusState) {
-            FocusState.AUTO -> b.set(
-                CaptureRequest.CONTROL_AF_MODE,
-                CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO
-            )
-
+            FocusState.AUTO -> b.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
             FocusState.MANUAL -> {
                 b.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
                 b.set(CaptureRequest.LENS_FOCUS_DISTANCE, focusDistance)
@@ -571,7 +506,6 @@ class Camera2SlowMoController(
     // ---- Session (always configure with EXACT targets we will use) ----
     private fun rebuildSession(withRecorder: Boolean, onError: (Throwable) -> Unit = {}) {
         val dev = cameraDevice ?: return
-        // (Re)acquire preview surface if needed.
         if (!surfaceUsable(previewSurface)) {
             previewSurface = waitForPreviewSurface(currentSize(), 1500)
             if (!surfaceUsable(previewSurface)) {
@@ -580,7 +514,6 @@ class Camera2SlowMoController(
             }
         }
 
-        // Build exact outputs list depending on pipeline & withRecorder.
         val outputs = mutableListOf<Surface>()
         previewSurface?.let { outputs.add(it) }
         val needRecorder = withRecorder && mediaRecorder != null && surfaceUsable(recorderSurface)
@@ -596,75 +529,60 @@ class Camera2SlowMoController(
                     object : CameraCaptureSession.StateCallback() {
                         override fun onConfigured(session: CameraCaptureSession) {
                             captureSession = session
-                            sessionTargets.clear()
-                            sessionTargets.addAll(outputs)
+                            sessionTargets.clear(); sessionTargets.addAll(outputs)
                             sessionHasRecorder = needRecorder
                             try {
                                 val template =
-                                    if (useTemplateRecordForPreview && needRecorder) CameraDevice.TEMPLATE_RECORD else CameraDevice.TEMPLATE_PREVIEW
+                                    if (useTemplateRecordForPreview && needRecorder) CameraDevice.TEMPLATE_RECORD
+                                    else CameraDevice.TEMPLATE_PREVIEW
                                 val b = buildHfrRequest(template, wantRecorder = needRecorder)
                                 val hs = session as CameraConstrainedHighSpeedCaptureSession
                                 val burst = hs.createHighSpeedRequestList(b.build())
                                 hs.setRepeatingBurst(burst, captureCallback, camHandler)
                                 ready = true
-                                Log.d(
-                                    TAG,
-                                    "Preview HFR; range=${getCurrentAeFpsRange()} size=${currentSize().width}x${currentSize().height}"
-                                )
+                                Log.d(TAG, "Preview HFR; range=${getCurrentAeFpsRange()} size=${currentSize().width}x${currentSize().height}")
                                 logMode("Preview HFR")
                             } catch (e: Exception) {
                                 onError(e)
                             }
                         }
-
                         override fun onConfigureFailed(session: CameraCaptureSession) {
                             onError(IllegalStateException("HFR configure failed"))
                         }
-
                         override fun onClosed(session: CameraCaptureSession) {
                             sessionClosedLatch?.countDown()
                         }
                     }, camHandler
                 )
             } else {
-                // STD/ULL session
+                // STD/VERY_DARK session
                 dev.createCaptureSession(
                     outputs,
                     object : CameraCaptureSession.StateCallback() {
                         override fun onConfigured(session: CameraCaptureSession) {
                             captureSession = session
-                            sessionTargets.clear()
-                            sessionTargets.addAll(outputs)
+                            sessionTargets.clear(); sessionTargets.addAll(outputs)
                             sessionHasRecorder = needRecorder
                             try {
                                 val fps = when (pipeline) {
                                     Pipeline.STD60 -> pickStd60FpsRange() ?: Range(60, 60)
-                                    Pipeline.VERY_DARK -> Range(60, 60)   // fixed 60 fps
+                                    Pipeline.VERY_DARK -> Range(60, 60)
                                     else -> Range(60, 60)
                                 }
                                 val template =
                                     if (needRecorder) CameraDevice.TEMPLATE_RECORD else CameraDevice.TEMPLATE_PREVIEW
-                                val b = buildStdRequest(
-                                    template,
-                                    wantRecorder = needRecorder,
-                                    fpsRange = fps
-                                )
+                                val b = buildStdRequest(template, wantRecorder = needRecorder, fpsRange = fps)
                                 session.setRepeatingRequest(b.build(), captureCallback, camHandler)
                                 ready = true
-                                Log.d(
-                                    TAG,
-                                    "Preview ${pipeline.name}; range=$fps size=${currentSize().width}x${currentSize().height}"
-                                )
+                                Log.d(TAG, "Preview ${pipeline.name}; range=$fps size=${currentSize().width}x${currentSize().height}")
                                 logMode("Preview ${pipeline.name}")
                             } catch (e: Exception) {
                                 onError(e)
                             }
                         }
-
                         override fun onConfigureFailed(session: CameraCaptureSession) {
                             onError(IllegalStateException("STD/ULL configure failed"))
                         }
-
                         override fun onClosed(session: CameraCaptureSession) {
                             sessionClosedLatch?.countDown()
                         }
@@ -686,11 +604,10 @@ class Camera2SlowMoController(
         val file = createOutputFile()
 
         val recordFps = when (pipeline) {
-            Pipeline.HFR -> getCurrentAeFpsRange()?.upper ?: targetFpsForBudget
+            Pipeline.HFR -> getCurrentAeFpsRange()?.upper ?: desiredFixedFps()
             Pipeline.STD60 -> pickStd60FpsRange()?.upper ?: 60
-            Pipeline.VERY_DARK -> 60   // fixed 60 fps
+            Pipeline.VERY_DARK -> 60
         }
-
 
         mediaRecorder = MediaRecorder().apply {
             setAudioSource(MediaRecorder.AudioSource.CAMCORDER)
@@ -704,8 +621,7 @@ class Camera2SlowMoController(
 
             setOutputFile(file.absolutePath)
 
-            val usingHevc =
-                if (useHevcIfAvailable && pipeline != Pipeline.VERY_DARK) trySetHevc(this) else false
+            val usingHevc = if (useHevcIfAvailable && pipeline != Pipeline.VERY_DARK) trySetHevc(this) else false
             if (!usingHevc) setVideoEncoder(MediaRecorder.VideoEncoder.H264)
 
             setVideoFrameRate(recordFps)
@@ -720,27 +636,19 @@ class Camera2SlowMoController(
                 Pipeline.STD60 -> 0.20
                 Pipeline.HFR -> 0.22
             }
-            val targetBitrate =
-                (encW.toLong() * encH.toLong() * recordFps * bpp).toInt().coerceAtLeast(1_200_000)
+            val targetBitrate = (encW.toLong() * encH.toLong() * recordFps * bpp).toInt().coerceAtLeast(1_200_000)
             setVideoEncodingBitRate(targetBitrate)
 
             prepare()
-            Log.d(
-                TAG,
-                "Recorder pipe=$pipeline size=${encW}x${encH} fps=$recordFps vbitrate=$targetBitrate codec=${if (usingHevc) "HEVC" else "H264"}"
-            )
+            Log.d(TAG, "Recorder pipe=$pipeline size=${encW}x${encH} fps=$recordFps vbitrate=$targetBitrate codec=${if (usingHevc) "HEVC" else "H264"}")
         }
 
         recorderSurface = mediaRecorder!!.surface
         isRecording = true
 
-        // IMPORTANT: (re)build a session that INCLUDES the recorder surface.
-        rebuildSession(withRecorder = true) { e ->
-            onError(e)
-            return@rebuildSession
-        }
+        // Rebuild a session that INCLUDES the recorder surface
+        rebuildSession(withRecorder = true) { e -> onError(e); return@rebuildSession }
 
-        // Start after session is configured with recorder target.
         try {
             mediaRecorder?.start()
             onStarted()
@@ -752,15 +660,15 @@ class Camera2SlowMoController(
 
     /** Stop + return original (no re-mux) */
     fun stopRecording(onSaved: (Uri) -> Unit, onError: (Throwable) -> Unit) {
-        Log.d(TAG, "Video saved ")
+        Log.d(TAG, "Video saved")
         finishRecorder(
-            makeOutput = { srcFile -> srcFile }, // just return original
+            makeOutput = { srcFile -> srcFile },
             onSaved = onSaved,
             onError = onError
         )
     }
 
-    /** Stop + retime to exact playback fps (15 or 30) — no re-encode. */
+    /** Stop + retime to exact playback fps (10..60) — no re-encode; audio scaled to match video; replaces source file */
     fun stopRecordingWithPlaybackFps(
         targetFps: Int,
         onSaved: (Uri) -> Unit,
@@ -771,7 +679,7 @@ class Camera2SlowMoController(
                 TimestampRetimer.retimeToFixedFps(
                     context = context,
                     src = srcFile,
-                    targetFps = if (pipeline==Pipeline.VERY_DARK) 15 else targetFps.coerceIn(10, 60),
+                    targetFps = if (pipeline == Pipeline.VERY_DARK) 15 else targetFps.coerceIn(10, 60),
                     keepAudio = false
                 )
             },
@@ -786,33 +694,19 @@ class Camera2SlowMoController(
         onSaved: (Uri) -> Unit,
         onError: (Throwable) -> Unit
     ) {
-        try {
-            captureSession?.stopRepeating()
-        } catch (_: Exception) {
-        }
+        try { captureSession?.stopRepeating() } catch (_: Exception) {}
         var err: Throwable? = null
-        try {
-            mediaRecorder?.stop()
-        } catch (e: Exception) {
-            err = e
-        }
-        try {
-            mediaRecorder?.reset()
-        } catch (_: Exception) {
-        }
+        try { mediaRecorder?.stop() } catch (e: Exception) { err = e }
+        try { mediaRecorder?.reset() } catch (_: Exception) {}
 
         isRecording = false
-        try {
-            mediaRecorder?.release()
-        } catch (_: Exception) {
-        }
+        try { mediaRecorder?.release() } catch (_: Exception) {}
         mediaRecorder = null
 
         val recorded = outputFile
         recorderSurface = null
 
         if (err != null) {
-            // Rebuild preview-only session and report.
             rebuildSession(withRecorder = false) {}
             mainHandler.post { onError(err!!) }
             return
@@ -843,7 +737,6 @@ class Camera2SlowMoController(
                 )
                 mainHandler.post { onSaved(Uri.fromFile(recorded)) }
             } finally {
-                // Always restore preview-only session after stop.
                 rebuildSession(withRecorder = false) {}
             }
         }.start()
@@ -854,27 +747,18 @@ class Camera2SlowMoController(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 rec.setVideoEncoder(MediaRecorder.VideoEncoder.HEVC); true
             } else false
-        } catch (_: Exception) {
-            false
-        }
+        } catch (_: Exception) { false }
     }
 
     // ---- Focus / Zoom / EV ----
-    fun enableAutoFocus() {
-        focusState = FocusState.AUTO; reapplyRepeating("enableAutoFocus")
-    }
-
-    fun setManualFocus(distance: Float) {
-        focusState = FocusState.MANUAL; focusDistance = distance; reapplyRepeating("setManualFocus")
-    }
-
+    fun enableAutoFocus() { focusState = FocusState.AUTO; reapplyRepeating("enableAutoFocus") }
+    fun setManualFocus(distance: Float) { focusState = FocusState.MANUAL; focusDistance = distance; reapplyRepeating("setManualFocus") }
     fun setZoomLevel(zoom: Float) {
         val newZ = zoom.coerceIn(1f, maxDigitalZoom.coerceAtMost(5f))
         if (abs(newZ - zoomLevel) < 0.001f) return
         zoomLevel = newZ
         reapplyRepeating("setZoomLevel")
     }
-
     private fun setCurrentEv(delta: Int) {
         currentEvDelta = clampEv(delta).coerceIn(-6, +6)
         reapplyRepeating("setCurrentEv")
@@ -886,22 +770,17 @@ class Camera2SlowMoController(
         val session = captureSession ?: return
         val wantRecorder = isRecording && surfaceUsable(recorderSurface)
 
-        // If preview surface got invalid, reacquire and rebuild preview session.
         if (!surfaceUsable(previewSurface)) {
             Log.w(TAG, "Preview surface invalid → rebuilding session ($reason)")
             rebuildSession(withRecorder = wantRecorder) {}
             return
         }
 
-        // If desired set (withRecorder) doesn't match current session configuration, rebuild.
-        if (wantRecorder != sessionHasRecorder || !sessionContains(previewSurface) || (wantRecorder && !sessionContains(
-                recorderSurface
-            ))
+        if (wantRecorder != sessionHasRecorder ||
+            !sessionContains(previewSurface) ||
+            (wantRecorder && !sessionContains(recorderSurface))
         ) {
-            Log.d(
-                TAG,
-                "Session targets mismatch → rebuilding session ($reason) wantRecorder=$wantRecorder hasRecorder=$sessionHasRecorder"
-            )
+            Log.d(TAG, "Session targets mismatch → rebuilding session ($reason) wantRecorder=$wantRecorder hasRecorder=$sessionHasRecorder")
             rebuildSession(withRecorder = wantRecorder) {}
             return
         }
@@ -910,33 +789,25 @@ class Camera2SlowMoController(
             when (pipeline) {
                 Pipeline.HFR -> {
                     val hs = session as? CameraConstrainedHighSpeedCaptureSession ?: run {
-                        rebuildSession(withRecorder = wantRecorder) {}
-                        return
+                        rebuildSession(withRecorder = wantRecorder) {}; return
                     }
-                    val template =
-                        if (wantRecorder) CameraDevice.TEMPLATE_RECORD else CameraDevice.TEMPLATE_PREVIEW
+                    val template = if (wantRecorder) CameraDevice.TEMPLATE_RECORD else CameraDevice.TEMPLATE_PREVIEW
                     val b = buildHfrRequest(template, wantRecorder)
                     val burst = hs.createHighSpeedRequestList(b.build())
                     hs.setRepeatingBurst(burst, captureCallback, camHandler)
                 }
-
                 Pipeline.STD60, Pipeline.VERY_DARK -> {
                     val fps = when (pipeline) {
                         Pipeline.STD60 -> pickStd60FpsRange() ?: Range(60, 60)
-                        Pipeline.VERY_DARK -> Range(60, 60)   // force 60 fps
+                        Pipeline.VERY_DARK -> Range(60, 60)
                         else -> Range(60, 60)
                     }
-                    val template =
-                        if (wantRecorder) CameraDevice.TEMPLATE_RECORD else CameraDevice.TEMPLATE_PREVIEW
+                    val template = if (wantRecorder) CameraDevice.TEMPLATE_RECORD else CameraDevice.TEMPLATE_PREVIEW
                     val b = buildStdRequest(template, wantRecorder, fps)
                     session.setRepeatingRequest(b.build(), captureCallback, camHandler)
                 }
-
             }
-            Log.d(
-                TAG,
-                "Reapplied ($reason) isRecording=$isRecording zoom=$zoomLevel focus=$focusState"
-            )
+            Log.d(TAG, "Reapplied ($reason) isRecording=$isRecording zoom=$zoomLevel focus=$focusState")
         } catch (iae: IllegalArgumentException) {
             Log.w(TAG, "setRepeating failed (unconfigured surface) → rebuilding…", iae)
             rebuildSession(withRecorder = wantRecorder) {}
@@ -958,10 +829,8 @@ class Camera2SlowMoController(
 
             // Optional auto-torch (in HFR)
             if (autoTorchEnabled && pipeline == Pipeline.HFR) {
-                val budget = (1_000_000_000.0 / (getCurrentAeFpsRange()?.upper
-                    ?: targetFpsForBudget)).toLong().coerceAtLeast(1)
-                val fracTorch =
-                    if (expNs != null && budget > 0) expNs.toDouble() / budget.toDouble() else 0.0
+                val budget = (1_000_000_000.0 / (getCurrentAeFpsRange()?.upper ?: targetFpsForBudget)).toLong().coerceAtLeast(1)
+                val fracTorch = if (expNs != null && budget > 0) expNs.toDouble() / budget.toDouble() else 0.0
                 val needTorch = iso != null && fracTorch > 0.80 && iso >= 1200
                 if (needTorch != torchOn) {
                     torchOn = needTorch
@@ -990,8 +859,7 @@ class Camera2SlowMoController(
             if (ratio > 0.9 && sensitivity >= 1600) onTooDark?.invoke()
             if (!tooBright && !tooDark) return
 
-            val delta =
-                (if (tooBright) -evStep else +evStep) + if (envState == Env.INDOOR) +1 else 0
+            val delta = (if (tooBright) -evStep else +evStep) + if (envState == Env.INDOOR) +1 else 0
             val newEv = (currentEvDelta + delta).coerceIn(-maxAutoEvDelta, +maxAutoEvDelta)
             if (newEv == currentEvDelta) return
 
@@ -1001,13 +869,11 @@ class Camera2SlowMoController(
         }
     }
 
-    // -------- REPLACED: Environment selection now uses EV100 average with hysteresis --------
+    // -------- Environment selection via EV100 average with hysteresis --------
     private fun handleEnvironmentHeuristics(result: TotalCaptureResult) {
         val expNs = result.get(CaptureResult.SENSOR_EXPOSURE_TIME) ?: return
         val iso = result.get(CaptureResult.SENSOR_SENSITIVITY) ?: return
-        val frameDurNsActual = result.get(CaptureResult.SENSOR_FRAME_DURATION) ?: 0L
 
-        // EV100 = log2( (aperture^2) / t * (100 / ISO) )
         val tSec = expNs.toDouble() / 1_000_000_000.0
         val evInstant = if (tSec > 0 && iso > 0) {
             log2((lensAperture.toDouble().pow(2.0) / tSec) * (100.0 / iso.toDouble()))
@@ -1016,83 +882,58 @@ class Camera2SlowMoController(
         pushEv(evInstant)
         val evAvg = avgEv()
         val aeState = result.get(CaptureResult.CONTROL_AE_STATE) ?: -1
-
-//        Log.d(
-//            TAG,
-//            "EnvEV: EVinst=${"%.2f".format(evInstant)} EVavg=${"%.2f".format(evAvg)} iso=$iso t=${
-//                "%.6f".format(tSec)
-//            }s ae=$aeState env=$envState pipe=$pipeline"
-//        )
+        Log.d(TAG, "EnvEV: EVinst=${"%.2f".format(evInstant)} EVavg=${"%.2f".format(evAvg)} iso=$iso ae=$aeState env=$envState pipe=$pipeline")
 
         when (envState) {
             Env.OUTDOOR -> {
-                // leave outdoor if EV drops sufficiently
                 if (evAvg < VERYDARK_ENTER && !isRecording) {
-                    dwellToVeryDark++
-                    dwellToIndoor = 0
-                    Log.d(TAG, "dwellToVeryDark=$dwellToVeryDark/$dwellConfirm (OUTDOOR)")
+                    dwellToVeryDark++; dwellToIndoor = 0
                     if (dwellToVeryDark >= dwellConfirm || isFirstTime) {
-                        isFirstTime=false
+                        isFirstTime = false
                         pipeline = Pipeline.VERY_DARK; rebuildSession(withRecorder = false) {}
-                        envState = Env.VERY_DARK
-                        dwellToVeryDark = 0
+                        envState = Env.VERY_DARK; dwellToVeryDark = 0
                         logMode("EV switch OUTDOOR→VERY_DARK")
                     }
                 } else if (evAvg < OUTDOOR_EXIT && !isRecording) {
-                    dwellToIndoor++
-                    dwellToVeryDark = 0
-                    Log.d(TAG, "dwellToIndoor=$dwellToIndoor/$dwellConfirm (OUTDOOR)")
+                    dwellToIndoor++; dwellToVeryDark = 0
                     if (dwellToIndoor >= dwellConfirm || isFirstTime) {
-                        isFirstTime=false
+                        isFirstTime = false
                         pipeline = Pipeline.STD60; rebuildSession(withRecorder = isRecording) {}
-                        envState = Env.INDOOR
-                        dwellToIndoor = 0
+                        envState = Env.INDOOR; dwellToIndoor = 0
                         logMode("EV switch OUTDOOR→INDOOR")
                     }
                 } else {
                     dwellToIndoor = 0; dwellToVeryDark = 0
                 }
             }
-
             Env.INDOOR -> {
-                // go outdoor if EV is high enough
                 if (evAvg >= OUTDOOR_ENTER && !isRecording) {
                     dwellToOutdoor++
-                    Log.d(TAG, "dwellToOutdoor=$dwellToOutdoor/$dwellConfirm (INDOOR)")
                     if (dwellToOutdoor >= dwellConfirm || isFirstTime) {
-                        isFirstTime=false
+                        isFirstTime = false
                         pipeline = Pipeline.HFR; rebuildSession(withRecorder = isRecording) {}
-                        envState = Env.OUTDOOR
-                        dwellToOutdoor = 0
-                        logMode("EV switch INDOOR→OUTDOOR")
-                        return
+                        envState = Env.OUTDOOR; dwellToOutdoor = 0
+                        logMode("EV switch INDOOR→OUTDOOR"); return
                     }
                 } else dwellToOutdoor = 0
 
-                // go very dark if EV low enough
                 if (evAvg <= VERYDARK_ENTER && !isRecording) {
                     dwellToVeryDark++
-                    Log.d(TAG, "dwellToVeryDark=$dwellToVeryDark/$dwellConfirm (INDOOR)")
                     if (dwellToVeryDark >= dwellConfirm || isFirstTime) {
-                        isFirstTime=false
+                        isFirstTime = false
                         pipeline = Pipeline.VERY_DARK; rebuildSession(withRecorder = false) {}
-                        envState = Env.VERY_DARK
-                        dwellToVeryDark = 0
+                        envState = Env.VERY_DARK; dwellToVeryDark = 0
                         logMode("EV switch INDOOR→VERY_DARK")
                     }
                 } else dwellToVeryDark = 0
             }
-
             Env.VERY_DARK -> {
-                // leave very dark toward indoor first
                 if (evAvg > VERYDARK_EXIT && !isRecording) {
                     dwellToIndoor++
-                    Log.d(TAG, "dwellToIndoor=$dwellToIndoor/$dwellConfirm (VERY_DARK)")
                     if (dwellToIndoor >= dwellConfirm || isFirstTime) {
-                        isFirstTime=false
+                        isFirstTime = false
                         pipeline = Pipeline.STD60; rebuildSession(withRecorder = isRecording) {}
-                        envState = Env.INDOOR
-                        dwellToIndoor = 0
+                        envState = Env.INDOOR; dwellToIndoor = 0
                         logMode("EV switch VERY_DARK→INDOOR")
                     }
                 } else dwellToIndoor = 0
@@ -1125,10 +966,7 @@ class Camera2SlowMoController(
         captureSession = null
         sessionTargets.clear()
         sessionHasRecorder = false
-        try {
-            sessionClosedLatch?.await(timeoutMs, TimeUnit.MILLISECONDS)
-        } catch (_: InterruptedException) {
-        }
+        try { sessionClosedLatch?.await(timeoutMs, TimeUnit.MILLISECONDS) } catch (_: InterruptedException) {}
         sessionClosedLatch = null
     }
 
@@ -1147,11 +985,9 @@ class Camera2SlowMoController(
             val camId = option?.cameraId ?: return
             val chars = manager?.getCameraCharacteristics(camId) ?: return
             val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return
-            val sizes = map.getOutputSizes(MediaRecorder::class.java)
-                ?.joinToString { "${it.width}x${it.height}" }
+            val sizes = map.getOutputSizes(MediaRecorder::class.java)?.joinToString { "${it.width}x${it.height}" }
             Log.d(TAG, "MediaRecorder supported sizes: $sizes")
-        } catch (_: Exception) {
-        }
+        } catch (_: Exception) {}
     }
 
     private fun logMode(why: String) {
@@ -1161,31 +997,22 @@ class Camera2SlowMoController(
         val eff = clampEv(baseEv + currentEvDelta)
         Log.d(
             TAG,
-            "Mode[$why]: env=$envState • pipe=$pipeline • range=${ae ?: "?"} • size=${sz.width}x${sz.height} • EV(base=$baseEv, delta=$currentEvDelta, eff=$eff) • AB=$currentAntibanding"
+            "Mode[$why]: env=$envState • pipe=$pipeline • wantFixedFps=${desiredFixedFps()} • range=${ae ?: "?"} • size=${sz.width}x${sz.height} • EV(base=$baseEv, delta=$currentEvDelta, eff=$eff) • AB=$currentAntibanding"
         )
     }
 
     // ---- Release (full cleanup) ----
     fun release() {
         ready = false
-        try {
-            closeSessionSync()
-        } catch (_: Exception) {
-        }
+        try { closeSessionSync() } catch (_: Exception) {}
         cameraDevice?.let { dev ->
             deviceClosedLatch = CountDownLatch(1)
             runCatching { dev.close() }
             cameraDevice = null
-            try {
-                deviceClosedLatch?.await(500, TimeUnit.MILLISECONDS)
-            } catch (_: InterruptedException) {
-            }
+            try { deviceClosedLatch?.await(500, TimeUnit.MILLISECONDS) } catch (_: InterruptedException) {}
             deviceClosedLatch = null
         }
-        try {
-            mediaRecorder?.release()
-        } catch (_: Exception) {
-        }
+        try { mediaRecorder?.release() } catch (_: Exception) {}
         mediaRecorder = null
         previewSurface = null
         recorderSurface = null
@@ -1198,7 +1025,9 @@ class Camera2SlowMoController(
 
 /* ===========================================================
  * TimestampRetimer
- * - Retimes to an exact playback fps (15/30) by rewriting PTS (no re-encode).
+ * - Retimes to an exact playback fps (10..60) by rewriting PTS (no re-encode).
+ * - Keeps video cadence intact; scales audio timestamps to end exactly with video.
+ * - Replaces the source file (same name).
  * =========================================================== */
 private object TimestampRetimer {
     private const val TAG = "TimestampRetimer"
@@ -1211,36 +1040,56 @@ private object TimestampRetimer {
     ): File {
         require(targetFps in 10..60) { "targetFps must be in [10..60]" }
         Log.d(TAG, "Video saved with $targetFps")
+
+        // Temp out; then replace original
+        val finalPath = src.absolutePath
+        val tmpOutFile = File(src.parentFile, src.nameWithoutExtension + "_retime_tmp.mp4")
+        if (tmpOutFile.exists()) runCatching { tmpOutFile.delete() }
+
         val extractor = MediaExtractor()
         extractor.setDataSource(src.absolutePath)
-
-        val outFile = File(src.parentFile, src.nameWithoutExtension + "_${targetFps}fps.mp4")
-        val muxer = MediaMuxer(outFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+        val muxer = MediaMuxer(tmpOutFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
 
         val trackCount = extractor.trackCount
         val outTrackIndex = IntArray(trackCount) { -1 }
 
         var videoTrack = -1
         var audioTrack = -1
+        var orientationHint: Int? = null
+
+        // Add tracks; set video "frame-rate" metadata to targetFps; keep rotation
         for (i in 0 until trackCount) {
             val fmt = extractor.getTrackFormat(i)
             val mime = fmt.getString(MediaFormat.KEY_MIME) ?: ""
             val isVideo = mime.startsWith("video/")
             val isAudio = mime.startsWith("audio/")
+
             if (isVideo) {
-                videoTrack = i; outTrackIndex[i] = muxer.addTrack(fmt)
+                videoTrack = i
+                try {
+                    if (fmt.containsKey(MediaFormat.KEY_FRAME_RATE)) fmt.setInteger(MediaFormat.KEY_FRAME_RATE, targetFps)
+                    if (fmt.containsKey("frame-rate")) fmt.setInteger("frame-rate", targetFps)
+                } catch (_: Throwable) {}
+                try {
+                    if (fmt.containsKey(MediaFormat.KEY_ROTATION)) {
+                        orientationHint = fmt.getInteger(MediaFormat.KEY_ROTATION)
+                    }
+                } catch (_: Throwable) {}
+                outTrackIndex[i] = muxer.addTrack(fmt)
             } else if (isAudio && keepAudio) {
-                audioTrack = i; outTrackIndex[i] = muxer.addTrack(fmt)
+                audioTrack = i
+                outTrackIndex[i] = muxer.addTrack(fmt)
             }
         }
         require(videoTrack >= 0) { "No video track found" }
+        runCatching { orientationHint?.let { muxer.setOrientationHint(it) } }
 
         muxer.start()
 
         val buffer = java.nio.ByteBuffer.allocate(1 shl 20)
         val info = MediaCodec.BufferInfo()
 
-        // Video retime
+        // Video: rewrite PTS uniformly at targetFps
         val stepUs = 1_000_000L / targetFps
         var ptsUs = 0L
         for (i in 0 until trackCount) extractor.unselectTrack(i)
@@ -1261,28 +1110,107 @@ private object TimestampRetimer {
         }
         extractor.unselectTrack(videoTrack)
 
-        // Copy audio as-is (will likely end earlier)
+        val videoDurationUs = ptsUs // one step past last frame
+
+        // Audio: scale PTS to fill [0 .. videoDurationUs]
         if (keepAudio && audioTrack >= 0) {
-            extractor.selectTrack(audioTrack)
-            while (true) {
-                buffer.clear()
-                val size = extractor.readSampleData(buffer, 0)
-                if (size < 0) break
-                info.offset = 0
-                info.size = size
-                info.flags = 0
-                info.presentationTimeUs = extractor.sampleTime
-                muxer.writeSampleData(outTrackIndex[audioTrack], buffer, info)
-                extractor.advance()
+            // probe first/last audio pts
+            val probe = MediaExtractor()
+            probe.setDataSource(src.absolutePath)
+            var aProbeTrack = -1
+            for (i in 0 until probe.trackCount) {
+                val mime = probe.getTrackFormat(i).getString(MediaFormat.KEY_MIME) ?: ""
+                if (mime.startsWith("audio/")) { aProbeTrack = i; break }
             }
-            extractor.unselectTrack(audioTrack)
+            var a0 = 0L
+            var a1 = 0L
+            if (aProbeTrack >= 0) {
+                probe.selectTrack(aProbeTrack)
+                val tmpBuf = java.nio.ByteBuffer.allocate(1 shl 16)
+                var firstPts: Long? = null
+                var lastPts: Long? = null
+                while (true) {
+                    tmpBuf.clear()
+                    val size = probe.readSampleData(tmpBuf, 0)
+                    if (size < 0) break
+                    val pts = probe.sampleTime
+                    if (pts >= 0) {
+                        if (firstPts == null) firstPts = pts
+                        lastPts = pts
+                    }
+                    probe.advance()
+                }
+                probe.release()
+                a0 = firstPts ?: 0L
+                a1 = lastPts ?: a0
+            }
+
+            val audioSpanUs = (a1 - a0).coerceAtLeast(1L)
+            val scale = if (videoDurationUs <= 0) 1.0 else videoDurationUs.toDouble() / audioSpanUs.toDouble()
+
+            // rewrite audio with scaled timestamps
+            val aReader = MediaExtractor()
+            aReader.setDataSource(src.absolutePath)
+            var aReaderTrack = -1
+            for (i in 0 until aReader.trackCount) {
+                val mime = aReader.getTrackFormat(i).getString(MediaFormat.KEY_MIME) ?: ""
+                if (mime.startsWith("audio/")) { aReaderTrack = i; break }
+            }
+            if (aReaderTrack >= 0) {
+                aReader.selectTrack(aReaderTrack)
+                val aBuf = java.nio.ByteBuffer.allocate(1 shl 20)
+                val aInfo = MediaCodec.BufferInfo()
+                var lastOutPts = -1L
+                while (true) {
+                    aBuf.clear()
+                    val size = aReader.readSampleData(aBuf, 0)
+                    if (size < 0) break
+
+                    val inPts = aReader.sampleTime
+                    val relPts = (inPts - a0).coerceAtLeast(0L)
+                    val outPts = (relPts.toDouble() * scale)
+                        .toLong()
+                        .coerceAtMost(if (videoDurationUs > 0) videoDurationUs - 1 else 0L)
+
+                    aInfo.offset = 0
+                    aInfo.size = size
+                    aInfo.flags = 0
+                    aInfo.presentationTimeUs = if (outPts <= lastOutPts) lastOutPts + 1 else outPts
+                    lastOutPts = aInfo.presentationTimeUs
+
+                    muxer.writeSampleData(outTrackIndex[audioTrack], aBuf, aInfo)
+                    aReader.advance()
+                }
+            }
+            aReader.release()
         }
 
-        muxer.stop()
-        muxer.release()
-        extractor.release()
+        // Cleanup
+        runCatching { muxer.stop() }
+        runCatching { muxer.release() }
+        runCatching { extractor.release() }
 
-        Log.d(TAG, "Retimed to fixed fps=$targetFps → ${outFile.absolutePath}")
-        return outFile
+        // Replace original file with temp (same name as src)
+        val finalFile = File(finalPath)
+        try {
+            if (finalFile.exists()) {
+                if (!finalFile.delete()) {
+                    Log.w(TAG, "Could not delete original before replace: ${finalFile.absolutePath}")
+                }
+            }
+            val renamed = tmpOutFile.renameTo(finalFile)
+            if (!renamed) {
+                tmpOutFile.inputStream().use { input ->
+                    finalFile.outputStream().use { output -> input.copyTo(output) }
+                }
+                runCatching { tmpOutFile.delete() }
+            }
+        } catch (t: Throwable) {
+            Log.e(TAG, "File replace failed; returning temp file", t)
+            return tmpOutFile
+        }
+
+        Log.d(TAG, "Retimed to fixed fps=$targetFps → ${finalFile.absolutePath}")
+        return finalFile
     }
 }
