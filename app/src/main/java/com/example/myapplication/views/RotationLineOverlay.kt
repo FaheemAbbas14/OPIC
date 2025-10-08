@@ -1,4 +1,4 @@
-package com.example.myapplication.views
+package com.opic3d.Spatial.trendingvideos.views
 
 import android.content.Context
 import android.content.res.Configuration // ✅ NEW
@@ -10,7 +10,7 @@ import android.view.OrientationEventListener
 import android.view.Surface
 import android.view.View
 import androidx.annotation.ColorInt
-import com.example.myapplication.R
+import com.opic3d.Spatial.trendingvideos.R
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.min

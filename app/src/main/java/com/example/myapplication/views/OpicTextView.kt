@@ -1,10 +1,10 @@
-package com.example.myapplication.views
+package com.opic3d.Spatial.trendingvideos.views
 
 import android.content.Context
 import android.graphics.*
 import android.util.AttributeSet
 import android.view.View
-import com.example.myapplication.R   // NEW: import your R
+import com.opic3d.Spatial.trendingvideos.R   // NEW: import your R
 
 public class OpicTextView @JvmOverloads constructor(
     context: Context,

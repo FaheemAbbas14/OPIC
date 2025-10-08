@@ -1,4 +1,4 @@
-package com.example.myapplication
+package com.opic3d.Spatial.trendingvideos
 
 import android.content.Context
 import android.graphics.Canvas

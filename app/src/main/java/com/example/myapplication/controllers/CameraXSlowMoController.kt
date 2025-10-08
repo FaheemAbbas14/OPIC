@@ -1,4 +1,4 @@
-package com.example.myapplication.controllers
+package com.opic3d.Spatial.trendingvideos.controllers
 
 import android.content.Context
 import android.net.Uri
@@ -10,7 +10,7 @@ import androidx.camera.video.*
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
-import com.example.myapplication.model.SlowMoOption
+import com.opic3d.Spatial.trendingvideos.model.SlowMoOption
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*

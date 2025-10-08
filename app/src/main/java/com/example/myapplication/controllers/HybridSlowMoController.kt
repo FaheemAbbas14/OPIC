@@ -1,4 +1,4 @@
-package com.example.myapplication.controllers
+package com.opic3d.Spatial.trendingvideos.controllers
 
 import android.annotation.SuppressLint
 import android.content.Context
@@ -6,7 +6,7 @@ import android.net.Uri
 import android.util.Log
 import androidx.camera.view.PreviewView
 import androidx.lifecycle.LifecycleOwner
-import com.example.myapplication.model.SlowMoOption
+import com.opic3d.Spatial.trendingvideos.model.SlowMoOption
 
 class HybridSlowMoController(
     private val context: Context,
@@ -17,7 +17,8 @@ class HybridSlowMoController(
     private var camera2Controller: Camera2SlowMoController? = null
     private var boundOption: SlowMoOption? = null
 
-    @Volatile private var ready = false
+    @Volatile
+    private var ready = false
     fun isReady() = ready
 
     var onTooDark: (() -> Unit)? = null
@@ -93,29 +94,33 @@ class HybridSlowMoController(
     fun stopRecording(
         onSaved: (Uri) -> Unit = {},
         onError: (Throwable) -> Unit = {},
-        slowMoPlaybackFps: Int? = 30, // 15 or 30; null to keep realtime
         keepAudio: Boolean = false
     ) {
         boundOption?.let { opt ->
             if (opt.fpsRange.upper > 60) {
-                if (slowMoPlaybackFps != null) {
-                    camera2Controller?.stopRecordingWithPlaybackFps(
-                        targetFps = slowMoPlaybackFps,
-                        onSaved = onSaved,
-                        onError = onError,
-                    )
-                } else {
-                    camera2Controller?.stopRecording(onSaved, onError)
-                }
+                camera2Controller?.stopRecordingWithPlaybackFps(
+                    keepAudio = keepAudio,
+                    onSaved = onSaved,
+                    onError = onError,
+                )
+
             } else {
                 cameraXController?.stopRecording()
             }
         }
     }
 
-    fun enableAutoFocus() { camera2Controller?.enableAutoFocus() }
-    fun setManualFocus(distance: Float) { camera2Controller?.setManualFocus(distance) }
-    fun setZoomLevel(zoom: Float) { camera2Controller?.setZoomLevel(zoom) }
+    fun enableAutoFocus() {
+        camera2Controller?.enableAutoFocus()
+    }
+
+    fun setManualFocus(distance: Float) {
+        camera2Controller?.setManualFocus(distance)
+    }
+
+    fun setZoomLevel(zoom: Float) {
+        camera2Controller?.setZoomLevel(zoom)
+    }
 
     fun release() {
         ready = false

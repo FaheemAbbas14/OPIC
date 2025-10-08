@@ -1,4 +1,4 @@
-package com.example.myapplication.model
+package com.opic3d.Spatial.trendingvideos.model
 
 
 /**

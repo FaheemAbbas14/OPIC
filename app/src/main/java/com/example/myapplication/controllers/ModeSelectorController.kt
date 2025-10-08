@@ -1,4 +1,4 @@
-package com.example.myapplication.controllers
+package com.opic3d.Spatial.trendingvideos.controllers
 
 import android.content.Context
 import android.graphics.Canvas
@@ -10,8 +10,8 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.LinearSmoothScroller
 import androidx.recyclerview.widget.PagerSnapHelper
 import androidx.recyclerview.widget.RecyclerView
-import com.example.myapplication.R
-import com.example.myapplication.adapters.CameraModeAdapter
+import com.opic3d.Spatial.trendingvideos.R
+import com.opic3d.Spatial.trendingvideos.adapters.CameraModeAdapter
 
 class ModeSelectorController(
     private val rv: RecyclerView,

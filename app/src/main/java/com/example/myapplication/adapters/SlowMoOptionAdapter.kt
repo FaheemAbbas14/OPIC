@@ -1,4 +1,4 @@
-package com.example.myapplication.adapters
+package com.opic3d.Spatial.trendingvideos.adapters
 
 
 /**
@@ -17,8 +17,8 @@ import android.widget.ArrayAdapter
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.core.view.isVisible
-import com.example.myapplication.R
-import com.example.myapplication.model.SlowMoOption
+import com.opic3d.Spatial.trendingvideos.R
+import com.opic3d.Spatial.trendingvideos.model.SlowMoOption
 
 class SlowMoOptionAdapter(
     context: Context,

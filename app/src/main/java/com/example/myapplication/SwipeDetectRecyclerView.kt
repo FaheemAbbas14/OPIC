@@ -1,4 +1,4 @@
-package com.example.myapplication
+package com.opic3d.Spatial.trendingvideos
 
 import android.content.Context
 import android.util.AttributeSet
@@ -7,7 +7,7 @@ import android.view.MotionEvent
 import android.view.ViewConfiguration
 import android.view.View.VISIBLE
 import androidx.recyclerview.widget.RecyclerView
-import com.example.myapplication.views.ZoomRulerView
+import com.opic3d.Spatial.trendingvideos.views.ZoomRulerView
 import kotlin.math.abs
 
 class SwipeDetectRecyclerView @JvmOverloads constructor(

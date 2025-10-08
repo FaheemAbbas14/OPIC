@@ -36,7 +36,7 @@
             android:visibility="visible"
             android:textSize="14sp"
             android:textStyle="normal" />
-        <com.example.myapplication.views.OpicTextView1
+        <com.opic3d.Spatial.trendingvideos.views.OpicTextView1
             android:id="@+id/opiczoomText"
             android:layout_width="@dimen/_30sdp"
             android:layout_height="@dimen/_20sdp"

@@ -1,6 +1,5 @@
-package com.example.myapplication.helper
+package com.opic3d.Spatial.trendingvideos.helper
 
-import android.content.Context
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
@@ -25,13 +24,12 @@ import java.io.File
  * =========================================================== */
 
 
-    fun retimeToFixedFps(
-        context: Context,
+    fun retieToFixedFps(
         src: File,
         targetFps: Int,
         keepAudio: Boolean = true
     ): File {
-       val TAG = "TimestampRetimer"
+       val TAG = "TimestampRe timer"
         require(targetFps in 10..60) { "targetFps must be in [10..60]" }
         Log.d(TAG, "Video saved with $targetFps")
 

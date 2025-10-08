@@ -1,13 +1,13 @@
 // CameraModeAdapter.kt
-package com.example.myapplication.adapters
+package com.opic3d.Spatial.trendingvideos.adapters
 
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.annotation.ColorInt
 import androidx.recyclerview.widget.RecyclerView
-import com.example.myapplication.R
-import com.example.myapplication.views.OpicTextView
+import com.opic3d.Spatial.trendingvideos.R
+import com.opic3d.Spatial.trendingvideos.views.OpicTextView
 
 class CameraModeAdapter(
     private val modes: List<String>,

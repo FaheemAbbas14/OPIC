@@ -1,4 +1,4 @@
-package com.example.myapplication.controllers
+package com.opic3d.Spatial.trendingvideos.controllers
 
 import android.Manifest
 import android.animation.ObjectAnimator
@@ -33,8 +33,8 @@ import android.view.TextureView
 import androidx.annotation.RequiresPermission
 import androidx.camera.view.PreviewView
 import androidx.core.animation.addListener
-import com.example.myapplication.helper.retimeToFixedFps
-import com.example.myapplication.model.SlowMoOption
+import com.opic3d.Spatial.trendingvideos.helper.retieToFixedFps
+import com.opic3d.Spatial.trendingvideos.model.SlowMoOption
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -827,32 +827,23 @@ class Camera2SlowMoController(
         outputFile = file
     }
 
-    /** Stop + return original (no re-mux) */
-    fun stopRecording(onSaved: (Uri) -> Unit, onError: (Throwable) -> Unit) {
-        Log.d(TAG, "Video saved")
-        finishRecorder(
-            makeOutput = { srcFile -> srcFile },
-            onSaved = onSaved,
-            onError = onError
-        )
-    }
 
     /** Stop + retime to exact playback fps (10..60) — no re-encode; audio scaled to match video; replaces source file */
     fun stopRecordingWithPlaybackFps(
-        targetFps: Int,
+        keepAudio: Boolean,
         onSaved: (Uri) -> Unit,
         onError: (Throwable) -> Unit
     ) {
+        Log.d(TAG, "fps ${option?.fpsRange?.upper}")
+       // var desiredFps = (option?.fpsRange?.upper)?.div(4) ?: 30
+        var desiredFps=30
+        Log.d(TAG, "desiredFps $desiredFps")
         finishRecorder(
             makeOutput = { srcFile ->
-                retimeToFixedFps(
-                    context = context,
+                retieToFixedFps(
                     src = srcFile,
-                    targetFps = if (pipeline == Pipeline.VERY_DARK) 15 else targetFps.coerceIn(
-                        10,
-                        60
-                    ),
-                    keepAudio = false
+                    targetFps = desiredFps,
+                    keepAudio = keepAudio
                 )
             },
             onSaved = onSaved,
@@ -1089,10 +1080,10 @@ class Camera2SlowMoController(
             pushEv(evInstant)
             val evAvg = avgEv()
             val aeState = result.get(CaptureResult.CONTROL_AE_STATE) ?: -1
-            Log.d(
-                TAG,
-                "EnvEV: EVinst=${"%.2f".format(evInstant)} EVavg=${"%.2f".format(evAvg)} iso=$iso ae=$aeState env=$envState pipe=$pipeline"
-            )
+//            Log.d(
+//                TAG,
+//                "EnvEV: EVinst=${"%.2f".format(evInstant)} EVavg=${"%.2f".format(evAvg)} iso=$iso ae=$aeState env=$envState pipe=$pipeline"
+//            )
 
             when (envState) {
                 Env.OUTDOOR -> {

@@ -46,7 +46,7 @@
     </LinearLayout>
 
     <!-- Level / rotation overlay -->
-    <com.example.myapplication.views.RotationLineOverlay
+    <com.opic3d.Spatial.trendingvideos.views.RotationLineOverlay
         android:id="@+id/lineOverlay"
         android:layout_width="200dp"
         android:layout_height="wrap_content"
@@ -154,7 +154,7 @@
         </LinearLayout>
 
         <!-- OPIC label (rotated) -->
-        <!--        <com.example.myapplication.OpicTextView-->
+        <!--        <com.opic3d.Spatial.trendingvideos.OpicTextView-->
         <!--            android:id="@+id/tv_opic_spartial"-->
         <!--            android:layout_width="@dimen/_80sdp"-->
         <!--            android:layout_height="@dimen/_24sdp"-->
@@ -165,7 +165,7 @@
         <!--            android:visibility="gone"-->
         <!--            android:textSize="@dimen/_11ssp"-->
         <!--            android:textStyle="bold" />-->
-        <com.example.myapplication.views.OPICToggler
+        <com.opic3d.Spatial.trendingvideos.views.OPICToggler
             android:id="@+id/mediaToggle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -205,7 +205,7 @@
         <!--            android:layout_gravity="center"-->
         <!--            android:clipToPadding="false"-->
         <!--            android:rotation="270" />-->
-        <com.example.myapplication.views.NoBounceRecyclerView
+        <com.opic3d.Spatial.trendingvideos.views.NoBounceRecyclerView
             android:id="@+id/rvMode"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -227,7 +227,7 @@
             android:layout_marginTop="10dp" />
 
         <!-- Manual focus ruler -->
-        <com.example.myapplication.FocusRulerView
+        <com.opic3d.Spatial.trendingvideos.FocusRulerView
             android:id="@+id/focusScaleView"
             android:layout_width="100dp"
             android:layout_height="match_parent"
@@ -242,7 +242,7 @@
             app:zr_tickSpacing="9dp" />
 
         <!-- Zoom ruler -->
-        <com.example.myapplication.views.ZoomRulerView
+        <com.opic3d.Spatial.trendingvideos.views.ZoomRulerView
             android:id="@+id/zoomRulerView"
             android:layout_width="100dp"
             android:layout_height="match_parent"
@@ -268,7 +268,7 @@
             android:paddingBottom="@dimen/_1sdp"
             android:visibility="visible">
 
-            <com.example.myapplication.SwipeDetectRecyclerView
+            <com.opic3d.Spatial.trendingvideos.SwipeDetectRecyclerView
                 android:id="@+id/zoomControlRecyclerView"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -280,7 +280,7 @@
     </FrameLayout>
 
     <!-- Timer -->
-    <com.example.myapplication.views.GlowingTimerView
+    <com.opic3d.Spatial.trendingvideos.views.GlowingTimerView
         android:id="@+id/glowTimer"
         android:layout_width="@dimen/_70sdp"
         android:layout_height="@dimen/_26sdp"

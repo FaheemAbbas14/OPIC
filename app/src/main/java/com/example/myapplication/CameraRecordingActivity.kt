@@ -1,4 +1,4 @@
-package com.example.myapplication
+package com.opic3d.Spatial.trendingvideos
 
 import android.Manifest
 import android.animation.ValueAnimator
@@ -20,7 +20,6 @@ import android.hardware.camera2.TotalCaptureResult
 import android.media.MediaActionSound
 import android.media.MediaExtractor
 import android.media.MediaFormat
-import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -100,16 +99,16 @@ import androidx.media3.transformer.Transformer
 import androidx.media3.transformer.VideoEncoderSettings
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.example.myapplication.controllers.HybridSlowMoController
-import com.example.myapplication.controllers.ModeSelectorController
-import com.example.myapplication.controllers.ZoomAdapterControl
-import com.example.myapplication.helper.ImageSplitter
-import com.example.myapplication.model.SlowMoOption
-import com.example.myapplication.model.SlowMoResult
-import com.example.myapplication.model.listBackCameraSlowMoOptions
-import com.example.myapplication.views.GlowingTimerView
-import com.example.myapplication.views.RotationLineOverlay
-import com.example.myapplication.views.ZoomRulerView
+import com.opic3d.Spatial.trendingvideos.controllers.HybridSlowMoController
+import com.opic3d.Spatial.trendingvideos.controllers.ModeSelectorController
+import com.opic3d.Spatial.trendingvideos.controllers.ZoomAdapterControl
+import com.opic3d.Spatial.trendingvideos.helper.ImageSplitter
+import com.opic3d.Spatial.trendingvideos.model.SlowMoOption
+import com.opic3d.Spatial.trendingvideos.model.SlowMoResult
+import com.opic3d.Spatial.trendingvideos.model.listBackCameraSlowMoOptions
+import com.opic3d.Spatial.trendingvideos.views.GlowingTimerView
+import com.opic3d.Spatial.trendingvideos.views.RotationLineOverlay
+import com.opic3d.Spatial.trendingvideos.views.ZoomRulerView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -217,7 +216,7 @@ class CameraRecordingActivity : ComponentActivity() {
     // ——— Pick image (gallery) ———
     private val pickImageLauncher =
         registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-            if (uri != null) cropImage(uri)
+          //  if (uri != null) cropImage(uri)
         }
 
     // ——— Activity lifecycle ———
@@ -576,8 +575,7 @@ class CameraRecordingActivity : ComponentActivity() {
                         isRecording && !isPaused -> {
                             if (isSlowMo) {
                                 controller.stopRecording(
-                                    keepAudio = true,
-                                    slowMoPlaybackFps = 30,
+                                    keepAudio = false,
                                     onSaved = { uri ->
                                         isRecording = false
                                         Log.d("SlowMoTest", "Finalized video = $uri")
@@ -873,7 +871,7 @@ class CameraRecordingActivity : ComponentActivity() {
                             lastAutoFocusDistance = fd
                             if (isManualFocus) lastMFAutoFocusDistance = fd
                         }
-                      //  Log.d("AF_TRACK", "AutoFocus distance = $fd")
+                        //  Log.d("AF_TRACK", "AutoFocus distance = $fd")
                     }
                 }
             })
@@ -1369,12 +1367,8 @@ class CameraRecordingActivity : ComponentActivity() {
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                     if (isSoundOn) shutter.play(MediaActionSound.SHUTTER_CLICK)
-                    val cacheUri = FileProvider.getUriForFile(
-                        this@CameraRecordingActivity,
-                        "${packageName}.fileprovider",
-                        outFile
-                    )
-                    lifecycleScope.launch { delay(300); cropImage(cacheUri) }
+
+                    lifecycleScope.launch { delay(300); cropImage(outFile) }
                 }
 
                 override fun onError(exc: ImageCaptureException) {
@@ -1399,13 +1393,26 @@ class CameraRecordingActivity : ComponentActivity() {
         videoPauseResume.setBackgroundResource(R.drawable.pause)
     }
 
-    fun cropImage(imageUri: Uri) {
-        val leftUri: Uri = ImageSplitter.splitHalfToUri(this, imageUri, ImageSplitter.Side.LEFT)
-        val rightUri: Uri = ImageSplitter.splitHalfToUri(this, imageUri, ImageSplitter.Side.RIGHT)
+    fun cropImage(outFile: File) {
+        val cacheUri = FileProvider.getUriForFile(
+            this@CameraRecordingActivity,
+            "${packageName}.fileprovider",
+            outFile
+        )
+        val fileUriString: String = outFile.toURI().toString()
+        val leftUri: Uri = ImageSplitter.splitHalfToUri(this, cacheUri, ImageSplitter.Side.LEFT)
+        val rightUri: Uri = ImageSplitter.splitHalfToUri(this, cacheUri, ImageSplitter.Side.RIGHT)
 //        val imageView = ImageView(this)
 //        imageView.setImageURI(leftUri)
 //        setContentView(imageView)
-        showMediaPopup(leftUri, true)
+        val resultIntent = Intent().apply {
+            putExtra("image_uri", cacheUri.toString())
+            putExtra("image_path", fileUriString)
+            putExtra("duration", (SystemClock.elapsedRealtime() - startTime) / 1000)
+            putExtra("file_size", getFileSize(cacheUri))
+Log.d("ImagePath","ImagePath ${cacheUri} fileUriString ${fileUriString} size ${getFileSize(cacheUri)}")
+            //showMediaPopup(leftUri, true)
+        }
     }
 
     private fun initAfterPermissions() {
@@ -1426,7 +1433,7 @@ class CameraRecordingActivity : ComponentActivity() {
             }
             val labels = options.map { it.label }
             // after you load `options` list
-            val slowMoAdapter = com.example.myapplication.adapters.SlowMoOptionAdapter(
+            val slowMoAdapter = com.opic3d.Spatial.trendingvideos.adapters.SlowMoOptionAdapter(
                 this@CameraRecordingActivity,
                 options
             )
@@ -1464,7 +1471,8 @@ class CameraRecordingActivity : ComponentActivity() {
     }
 
     // Pretty progress dialog (indeterminate)
-    private fun showProgressDialog(context: Context): AlertDialog = showPrettyProgressDialog(this)
+    private fun showProgressDialog(context: Context): AlertDialog =
+        showPrettyProgressDialog(this)
 
     // dp extension
     private fun Int.dp(context: Context): Int =
@@ -1487,9 +1495,11 @@ class CameraRecordingActivity : ComponentActivity() {
             imgMedia.setImageURI(uri)
         } else {
             val result = checkSlowMoFromUri(this, uri, assumedCaptureFps = 120)
-            Log.d("SlowMoCheck", "Playback FPS=${result.playbackFps?.let { "%.2f".format(it) } ?: "?"} • " +
-                    "Factor=${result.factor?.let { "%.2f".format(it) } ?: "?"}x • " +
-                    "SlowMo=${result.isSlowMo}")
+            Log.d(
+                "SlowMoCheck",
+                "Playback FPS=${result.playbackFps?.let { "%.2f".format(it) } ?: "?"} • " +
+                        "Factor=${result.factor?.let { "%.2f".format(it) } ?: "?"}x • " +
+                        "SlowMo=${result.isSlowMo}")
 
             // Show Video
             imgMedia.visibility = View.GONE
@@ -1515,7 +1525,8 @@ class CameraRecordingActivity : ComponentActivity() {
             // May be null on some OEMs
             val frameRateStr = mmr.extractMetadata(
                 android.media.MediaMetadataRetriever.METADATA_KEY_CAPTURE_FRAMERATE
-            ) ?: mmr.extractMetadata(24 /* undocumented: try KEY_VIDEO_FRAME_RATE on some devices */)
+            )
+                ?: mmr.extractMetadata(24 /* undocumented: try KEY_VIDEO_FRAME_RATE on some devices */)
 
             frameRateStr?.toDoubleOrNull()
                 ?: run {
@@ -1530,12 +1541,20 @@ class CameraRecordingActivity : ComponentActivity() {
                         frameCount.toDouble() / (durationMs.toDouble() / 1000.0)
                     } else null
                 }
-        } catch (_: Throwable) { null } finally { mmr.release() }
+        } catch (_: Throwable) {
+            null
+        } finally {
+            mmr.release()
+        }
     }
 
 
     /** Compute playback FPS by averaging timestamp deltas from the video track. */
-    fun computePlaybackFpsFromExtractor(context: Context, uri: Uri, sampleLimit: Int = 400): Double? {
+    fun computePlaybackFpsFromExtractor(
+        context: Context,
+        uri: Uri,
+        sampleLimit: Int = 400
+    ): Double? {
         val extractor = MediaExtractor()
         try {
             extractor.setDataSource(context, uri, null)
@@ -1584,12 +1603,19 @@ class CameraRecordingActivity : ComponentActivity() {
             Log.w("SlowMoCheck", "Extractor FPS calc failed: ${t.message}")
             return null
         } finally {
-            try { extractor.release() } catch (_: Throwable) {}
+            try {
+                extractor.release()
+            } catch (_: Throwable) {
+            }
         }
     }
 
     /** High-level helper that prints & returns the slow-mo verdict. */
-    fun checkSlowMoFromUri(context: Context, uri: Uri, assumedCaptureFps: Int = 120): SlowMoResult {
+    fun checkSlowMoFromUri(
+        context: Context,
+        uri: Uri,
+        assumedCaptureFps: Int = 120
+    ): SlowMoResult {
         // 1) Try extractor-based FPS (works on most files, even VFR)
         val playbackFps = computePlaybackFpsFromExtractor(context, uri)
 

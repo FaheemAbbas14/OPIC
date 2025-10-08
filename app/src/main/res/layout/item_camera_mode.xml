@@ -9,7 +9,7 @@
     android:paddingBottom="6dp"
     android:background="@drawable/bg_mode_unselected">
 
-<com.example.myapplication.views.OpicTextView
+<com.opic3d.Spatial.trendingvideos.views.OpicTextView
 android:id="@+id/tvMode"
 android:layout_width="wrap_content"
 android:layout_height="wrap_content"

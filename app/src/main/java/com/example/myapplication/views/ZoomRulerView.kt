@@ -1,4 +1,4 @@
-package com.example.myapplication.views
+package com.opic3d.Spatial.trendingvideos.views
 
 import android.content.Context
 import android.graphics.Canvas
@@ -12,7 +12,7 @@ import android.view.View
 import android.widget.OverScroller
 import androidx.core.content.res.getDimensionOrThrow
 import androidx.core.content.res.getFloatOrThrow
-import com.example.myapplication.R
+import com.opic3d.Spatial.trendingvideos.R
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor

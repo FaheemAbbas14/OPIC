@@ -1,6 +1,6 @@
-package com.example.myapplication.views
+package com.opic3d.Spatial.trendingvideos.views
 
-import com.example.myapplication.R
+import com.opic3d.Spatial.trendingvideos.R
 import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.*
