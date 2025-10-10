@@ -486,7 +486,7 @@ class CameraRecordingActivity : ComponentActivity() {
 
     private fun toggleMode() {
         if (isSlowMo && captureMode == CaptureMode.VIDEO) {
-            spnOptions.visibility = VISIBLE
+            spnOptions.visibility = GONE
         } else {
             spnOptions.visibility = GONE
         }
