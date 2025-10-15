@@ -52,7 +52,7 @@ class ModeSelectorController(
 
         val ctx: Context = rv.context
         adapter = CameraModeAdapter(
-            modes = listOf("OPIC VIDEO", "OPIC PHOTO", "OPIC SLOWMO"),
+            modes = listOf("OPIC VIDEO", "OPIC PHOTO", "OPIC SLOWMO", "OPIC Time-Lapse"),
             selectedColor = ContextCompat.getColor(ctx, R.color.mode_selected),
             unselectedColor = ContextCompat.getColor(ctx, R.color.mode_unselected)
         )

@@ -110,6 +110,33 @@ class HybridSlowMoController(
         }
     }
 
+    fun startLapseVideo(
+        multiplier: Double,           // e.g., 10.0 for 10x, 20.0 for 20x
+        playbackFps: Int = 30,
+        onStarted: () -> Unit = {},
+        onError: (Throwable) -> Unit
+    ) {
+        // Start time-lapse at 2 fps (capture) with 30 fps playback → ~15× speed
+        camera2Controller?.startTimeLapseX(
+            multiplier,
+            playbackFps,
+            onStarted = onStarted,
+            onError = onError
+        )
+    }
+
+    fun stopLapseVideo(
+        onSaved: (Uri) -> Unit = {},
+        onError: (Throwable) -> Unit = {},
+    ) {
+        // Stop later
+        camera2Controller?.stopTimeLapse(
+            normalizePlaybackFps = false, // set true to force exact PTS at playbackFps
+            onSaved = onSaved,
+            onError = onError
+        )
+    }
+
     fun enableAutoFocus() {
         camera2Controller?.enableAutoFocus()
     }
@@ -130,4 +157,5 @@ class HybridSlowMoController(
         camera2Controller = null
         boundOption = null
     }
+
 }
