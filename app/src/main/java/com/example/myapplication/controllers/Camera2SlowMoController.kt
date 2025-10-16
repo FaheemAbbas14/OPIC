@@ -102,7 +102,7 @@ class Camera2SlowMoController(
 
     // Time-lapse config (capture can be fractional; setCaptureRate uses Double)
     private var timelapseCaptureFps: Double = 2.0   // fps actually captured/sampled
-    private var timelapsePlaybackFps: Int = 30      // playback fps in file/container
+    private var timelapsePlaybackFps: Int = 60      // playback fps in file/container
 
     // AutoEV heuristics
     private val brightThresh = 0.20
@@ -538,7 +538,7 @@ class Camera2SlowMoController(
                                 val fps = when (pipeline) {
                                     Pipeline.STD60 -> pickStd60FpsRange() ?: Range(60, 60)
                                     Pipeline.VERY_DARK -> Range(60, 60)
-                                    Pipeline.TIMELAPSE -> pickStd60FpsRange() ?: Range(30, 30)
+                                    Pipeline.TIMELAPSE -> pickStd60FpsRange() ?: Range(60, 60)
                                     else -> Range(60, 60)
                                 }
                                 val template = if (needRecorder) CameraDevice.TEMPLATE_RECORD else CameraDevice.TEMPLATE_PREVIEW
@@ -622,7 +622,7 @@ class Camera2SlowMoController(
             Pipeline.HFR -> (forcedHsRange?.upper ?: getCurrentAeFpsRange()?.upper) ?: desiredFixedFps()
             Pipeline.STD60 -> pickStd60FpsRange()?.upper ?: 60
             Pipeline.VERY_DARK -> 60
-            Pipeline.TIMELAPSE -> 30 // shouldn't hit here; TL has its own API
+            Pipeline.TIMELAPSE -> 60 // shouldn't hit here; TL has its own API
         }
         lastRecordFps = recordFps
         mediaRecorder = MediaRecorder().apply {
@@ -694,7 +694,7 @@ class Camera2SlowMoController(
     ) {
         val dev = cameraDevice ?: return onError(IllegalStateException("Camera not ready"))
         if (captureFps <= 0.0 || playbackFps <= 0) return onError(IllegalArgumentException("Invalid fps"))
-        timelapseCaptureFps = captureFps.coerceIn(0.5, 30.0)   // guardrails to keep devices happy
+        timelapseCaptureFps = captureFps.coerceIn(0.5, playbackFps.toDouble())   // guardrails to keep devices happy
         timelapsePlaybackFps = playbackFps
 
         // Force out of HFR (TL uses standard session)
@@ -788,7 +788,7 @@ class Camera2SlowMoController(
     ) {
         if (multiplier <= 0.0) return onError(IllegalArgumentException("Multiplier must be > 0"))
         val rawCapture = playbackFps / multiplier
-        val captureFps = rawCapture.coerceIn(0.5, 30.0) // keep stable
+        val captureFps = rawCapture.coerceIn(0.5, playbackFps.toDouble()) // keep stable
         startTimeLapse(
             captureFps = captureFps,
             playbackFps = playbackFps,
@@ -914,7 +914,7 @@ class Camera2SlowMoController(
                     val fps = when (pipeline) {
                         Pipeline.STD60 -> pickStd60FpsRange() ?: Range(60, 60)
                         Pipeline.VERY_DARK -> Range(60, 60)
-                        Pipeline.TIMELAPSE -> pickStd60FpsRange() ?: Range(30, 30)
+                        Pipeline.TIMELAPSE -> pickStd60FpsRange() ?: Range(60, 60)
                         else -> Range(60, 60)
                     }
                     val template = if (wantRecorder) CameraDevice.TEMPLATE_RECORD else CameraDevice.TEMPLATE_PREVIEW

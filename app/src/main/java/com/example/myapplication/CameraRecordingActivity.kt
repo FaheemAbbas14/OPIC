@@ -280,7 +280,7 @@ class CameraRecordingActivity : ComponentActivity() {
             } else if (index == 1) {
                 captureMode = CaptureMode.PHOTO
             }
-            if (index == 2) {
+            else if (index == 2) {
                 captureMode = CaptureMode.SLOWMO
             } else {
                 captureMode = CaptureMode.TIMELAPSE
@@ -1459,7 +1459,7 @@ class CameraRecordingActivity : ComponentActivity() {
                 "ImagePath",
                 "ImagePath ${cacheUri} fileUriString ${fileUriString} size ${getFileSize(cacheUri)}"
             )
-            //showMediaPopup(leftUri, true)
+            showMediaPopup(leftUri, true)
         }
     }
 
