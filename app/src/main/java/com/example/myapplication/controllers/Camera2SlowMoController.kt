@@ -147,7 +147,7 @@ class Camera2SlowMoController(
     // Focus/zoom
     private enum class FocusState { AUTO, MANUAL }
     private var focusState: FocusState = FocusState.AUTO
-    private var focusDistance: Float = 0f
+    private var focusDistance: Float = 0.08f
     private var zoomLevel: Float = 1.2f
     private var maxDigitalZoom: Float = 5f
     private var activeArrayRect: Rect? = null
