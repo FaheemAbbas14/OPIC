@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.hardware.camera2.CaptureRequest
 import android.net.Uri
+import android.os.Environment
 import android.util.Log
 import android.util.Range
 import android.util.Size
@@ -33,6 +34,7 @@ import androidx.lifecycle.LifecycleOwner
 import com.opic3d.Spatial.trendingvideos.helper.retime
 import java.io.File
 import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -54,13 +56,15 @@ class CameraXController(
     private val mainExecutor by lazy { ContextCompat.getMainExecutor(appContext) }
 
     // Lazily-created background executor for retime work. Recreated if terminated.
-    @Volatile private var retimeExecutor: ExecutorService? = null
+    @Volatile
+    private var retimeExecutor: ExecutorService? = null
     private fun ensureRetimeExecutor(): ExecutorService {
         val ex = retimeExecutor
         return if (ex == null || ex.isShutdown || ex.isTerminated) {
             Executors.newSingleThreadExecutor().also { retimeExecutor = it }
         } else ex
     }
+
     private fun postRetime(task: () -> Unit) {
         ensureRetimeExecutor().execute(task)
     }
@@ -92,9 +96,11 @@ class CameraXController(
 
     /** Quick check to see if VideoCapture is bound and usable. */
     fun isVideoReady(): Boolean = videoCapture != null
+    var isVideo = false
 
     /** Bind once for any combination of photo/video. */
-     fun bind(photo: Boolean, video: Boolean) {
+    fun bind(photo: Boolean, video: Boolean) {
+        isVideo = video
         val provider = ProcessCameraProvider.getInstance(appContext).get()
         processProvider = provider
         runCatching { provider.unbindAll() }
@@ -140,7 +146,11 @@ class CameraXController(
         // Cache min focus
         cacheMinFocusDistance()
 
-        Log.d("CameraXController", "Bound @FHD. photo=$photo, video=$video, minFocus=$minFocusDistance, fps=$desiredFps")
+        checkZoomValues()
+        Log.d(
+            "CameraXController",
+            "Bound @FHD. photo=$photo, video=$video, minFocus=$minFocusDistance, fps=$desiredFps"
+        )
     }
 
     /** Adjust desired FPS (applies to active session). */
@@ -159,9 +169,7 @@ class CameraXController(
     ) {
         val vc = videoCapture ?: return onError(IllegalStateException("VideoCapture not bound"))
         if (recording != null) return onError(IllegalStateException("A recording is already in progress"))
-
-        val name = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(System.currentTimeMillis())
-        val outFile = File(appContext.externalCacheDir ?: appContext.cacheDir, "VID_$name.mp4")
+        val outFile = createOutputFile()
         val opts = FileOutputOptions.Builder(outFile).build()
 
         pendingOnResult = null
@@ -190,6 +198,21 @@ class CameraXController(
         }
     }
 
+    private fun createOutputFile(
+        prefix: String = when (isVideo) {
+            true -> "Vid"
+            false -> "IMG"
+        }
+    ): File {
+        val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        val dir = File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES),
+            "OPIC"
+        )
+        if (!dir.exists()) dir.mkdirs()
+        return File(dir, "${prefix}_$ts.mp4")
+    }
+
     /**
      * Start a TIME-LAPSE recording.
      * Records at [desiredFps], then retimes on finalize to [playbackFps] with a speed of (desiredFps / captureFps).
@@ -208,9 +231,7 @@ class CameraXController(
 
         val safeCaptureFps = captureFps.coerceAtLeast(0.1)
         val safePlaybackFps = playbackFps.coerceIn(1, 120)
-
-        val name = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(System.currentTimeMillis())
-        val outFile = File(appContext.externalCacheDir ?: appContext.cacheDir, "TL_$name.mp4")
+        val outFile = createOutputFile("TL")
         val opts = FileOutputOptions.Builder(outFile).build()
 
         pendingOutFile = outFile
@@ -249,7 +270,8 @@ class CameraXController(
                     // Heavy retime off main thread — using a resilient executor
                     postRetime {
                         val result: Result<Uri> = runCatching {
-                            val speedMultiplier = (desiredFps.toDouble() / pendingCaptureFps.coerceAtLeast(0.1))
+                            val speedMultiplier =
+                                (desiredFps.toDouble() / pendingCaptureFps.coerceAtLeast(0.1))
                             val effectiveTargetFps = if (pendingNormalizePlaybackFps)
                                 normalizeFps(pendingPlaybackFps) else pendingPlaybackFps
 
@@ -320,8 +342,7 @@ class CameraXController(
         onError: (Throwable) -> Unit
     ) {
         val cap = imageCapture ?: return onError(IllegalStateException("ImageCapture not bound"))
-        val name = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(System.currentTimeMillis())
-        val outFile = File(appContext.externalCacheDir ?: appContext.cacheDir, "IMG_$name.jpg")
+        val outFile = createOutputFile()
         val output = ImageCapture.OutputFileOptions.Builder(outFile).build()
         cap.takePicture(
             output,
@@ -330,11 +351,32 @@ class CameraXController(
                 override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
                     onSaved(Uri.fromFile(outFile))
                 }
+
                 override fun onError(exception: ImageCaptureException) {
                     onError(exception)
                 }
             }
         )
+    }
+
+    fun checkZoomValues(): MutableList<Float> {
+        val definedZoomLevels: MutableList<Float> = mutableListOf(5f, 4f, 3f, 2f, 1.2f, 1f)
+        val finalize: MutableList<Float> = mutableListOf()
+        val zoomStateLiveData = camera?.cameraInfo?.zoomState
+        zoomStateLiveData?.observe(lifecycleOwner) { zoomState ->
+            val minZoom = zoomState.minZoomRatio
+            val maxZoom = zoomState.maxZoomRatio
+            Log.d("CameraX", "Zoom range: $minZoom - $maxZoom")
+            for (zoom in definedZoomLevels) {
+                if (zoom >= minZoom && zoom <= maxZoom) {
+                    if (!finalize.contains(zoom)) {
+                        finalize.add(zoom)
+                    }
+                }
+
+            }
+        }
+        return finalize
     }
 
     /** Zoom */
@@ -366,7 +408,10 @@ class CameraXController(
         camera?.let { cam ->
             val c2 = Camera2CameraControl.from(cam.cameraControl)
             val opts = commonRequestOptionsBuilder(afContinuous = false)
-                .setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
+                .setCaptureRequestOption(
+                    CaptureRequest.CONTROL_AF_MODE,
+                    CaptureRequest.CONTROL_AF_MODE_OFF
+                )
                 .setCaptureRequestOption(CaptureRequest.LENS_FOCUS_DISTANCE, focusDistance)
                 .build()
             c2.setCaptureRequestOptions(opts)
@@ -436,9 +481,18 @@ class CameraXController(
                 if (afContinuous) CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO
                 else CaptureRequest.CONTROL_AF_MODE_OFF
             )
-            .setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
-            .setCaptureRequestOption(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
-            .setCaptureRequestOption(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range(clamped, clamped))
+            .setCaptureRequestOption(
+                CaptureRequest.CONTROL_AE_MODE,
+                CaptureRequest.CONTROL_AE_MODE_ON
+            )
+            .setCaptureRequestOption(
+                CaptureRequest.CONTROL_AWB_MODE,
+                CaptureRequest.CONTROL_AWB_MODE_AUTO
+            )
+            .setCaptureRequestOption(
+                CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE,
+                Range(clamped, clamped)
+            )
     }
 
     private fun normalizeFps(fps: Int): Int {

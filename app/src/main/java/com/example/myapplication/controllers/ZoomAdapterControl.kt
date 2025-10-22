@@ -33,13 +33,13 @@ class ZoomAdapterControl(
 
         // find the index of the target value
         var index = zoomLevels.indexOfFirst { it?.roundToInt() == target }
-        if (newValue == 1.2f) {
-            index = 4
-        }
-        if (newValue == 1f) {
-            index = 5
-
-        }
+//        if (newValue == 1.2f) {
+//            index = 4
+//        }
+//        if (newValue == 1f) {
+//            index = 5
+//
+//        }
         if (index != -1) {
             zoomLevels[index] = newValue
             selIdx = index

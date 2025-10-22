@@ -86,7 +86,8 @@ class HybridSlowMoController(
 
     // ---------- Smooth mode switching (freeze frame + crossfade) ----------
 
-    @Volatile private var switching = false
+    @Volatile
+    private var switching = false
 
     data class UiState(
         val zoom: Float? = null,
@@ -137,14 +138,17 @@ class HybridSlowMoController(
                     cam2.release()
                     camX.bind(photo = false, video = true)
                 }
+
                 Mode.PHOTO -> {
                     cam2.release()
                     camX.bind(photo = true, video = false)
                 }
+
                 Mode.TIMELAPSE -> {
                     cam2.release()
                     camX.bind(photo = false, video = true)
                 }
+
                 Mode.SLOWMO -> {
                     val opt = slowMoOption ?: throw IllegalStateException("SlowMoOption not set")
                     camX.release()
@@ -201,6 +205,7 @@ class HybridSlowMoController(
                 }
                 camX.startRecording(withAudio, onStarted, onSaved, onError)
             }
+
             Mode.SLOWMO -> cam2.startRecording(onStarted, onSaved, onError)
             Mode.TIMELAPSE -> onError(IllegalStateException("Use startLapseVideo() while in TIMELAPSE mode"))
             Mode.PHOTO -> onError(IllegalStateException("Photo mode has no recording"))
@@ -220,8 +225,10 @@ class HybridSlowMoController(
             Mode.VIDEO -> camX.stopRecording { result ->
                 result.onSuccess(onSaved).onFailure(onError)
             }
+
             Mode.SLOWMO -> cam2.stopRecordingWithPlaybackFps(keepAudio, onSaved, onError)
-            else -> { /* no-op for PHOTO / TIMELAPSE here */ }
+            else -> { /* no-op for PHOTO / TIMELAPSE here */
+            }
         }
     }
 
@@ -272,6 +279,13 @@ class HybridSlowMoController(
         onError: (Throwable) -> Unit
     ) {
         camX.stopTimeLapse(normalizePlaybackFps, onSaved, onError)
+    }
+
+    fun getZoomLevels(): MutableList<Float> {
+        when (mode) {
+            Mode.VIDEO, Mode.PHOTO, Mode.TIMELAPSE -> return camX.checkZoomValues()
+            Mode.SLOWMO -> return cam2.checkZoomValues()
+        }
     }
 
     // ---------- Photo (CameraX) ----------
