@@ -15,6 +15,7 @@ import com.opic3d.Spatial.trendingvideos.adapters.CameraModeAdapter
 
 class ModeSelectorController(
     private val rv: RecyclerView,
+    private val check3d: Boolean,
     private val onSelectionChanged: (index: Int) -> Unit
 ) {
     // Horizontal list with one-step pager snap
@@ -51,8 +52,13 @@ class ModeSelectorController(
         if (itemSpacingPx > 0) rv.addItemDecoration(Spaces(itemSpacingPx))
 
         val ctx: Context = rv.context
+        var modes=mutableListOf<String>("OPIC VIDEO", "OPIC PHOTO", "OPIC TIME-LAPSE", "OPIC SLOWMO")
+       // if (check3d){
+            modes.add("OPIC 3D PHOTO")
+            modes.add("OPIC 3D VIDEO")
+      //  }
         adapter = CameraModeAdapter(
-            modes = listOf("OPIC VIDEO", "OPIC PHOTO", "OPIC TIME-LAPSE", "OPIC SLOWMO"),
+            modes = modes,
             selectedColor = ContextCompat.getColor(ctx, R.color.mode_selected),
             unselectedColor = ContextCompat.getColor(ctx, R.color.mode_unselected)
         )

@@ -2,12 +2,19 @@ package com.opic3d.Spatial.trendingvideos.controllers
 
 import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.net.Uri
+import android.os.Build
+import android.util.Range
+import android.util.Size
 import android.widget.ImageView
+import android.widget.Toast
+import androidx.annotation.RequiresApi
 import androidx.annotation.RequiresPermission
 import androidx.camera.view.PreviewView
+import androidx.core.app.ActivityCompat
 import androidx.lifecycle.LifecycleOwner
 import com.opic3d.Spatial.trendingvideos.model.SlowMoOption
 import kotlinx.coroutines.Dispatchers
@@ -27,10 +34,10 @@ class HybridSlowMoController(
     private val previewView: PreviewView
 ) {
 
-    enum class Mode { VIDEO, PHOTO, SLOWMO, TIMELAPSE }
+    enum class Mode { VIDEO, PHOTO, TIMELAPSE, SLOWMO, THREEDPHOTO, THREEDVIDEO }
 
     private val camX = CameraXController(context, lifecycleOwner, previewView)
-    private val cam2 = Camera2SlowMoController(context, previewView)
+    private val cam2 = Camera2Controller(context, previewView)
 
     private var mode: Mode = Mode.VIDEO
     private var slowMoOption: SlowMoOption? = null
@@ -74,7 +81,7 @@ class HybridSlowMoController(
         camX.release()
         // query and cache min focus for this Camera2 device
         cam2MinFocusDistance = queryMinFocusDistance(option.cameraId)
-        cam2.bind(option, onError)
+        cam2.bind(option, false, onError)
     }
 
     /** Bind CameraX for **time-lapse** (video-only). Call this before startLapseVideo(...). */
@@ -84,6 +91,16 @@ class HybridSlowMoController(
         camX.bind(photo = false, video = true)
     }
 
+    @RequiresApi(Build.VERSION_CODES.P)
+    @RequiresPermission(Manifest.permission.CAMERA)
+    suspend fun bindTHREED(option: SlowMoOption, onError: (Throwable) -> Unit = {}) {
+        mode = Mode.THREEDVIDEO
+        slowMoOption = option
+        camX.release()
+        // query and cache min focus for this Camera2 device
+        cam2MinFocusDistance = queryMinFocusDistance(option.cameraId)
+        cam2.bind(option, true, onError)
+    }
     // ---------- Smooth mode switching (freeze frame + crossfade) ----------
 
     @Volatile
@@ -152,7 +169,15 @@ class HybridSlowMoController(
                 Mode.SLOWMO -> {
                     val opt = slowMoOption ?: throw IllegalStateException("SlowMoOption not set")
                     camX.release()
-                    cam2.bind(opt) { /* onError -> log/surface from caller if needed */ }
+                    cam2.bind(opt, false) { /* onError -> log/surface from caller if needed */ }
+                }
+
+                Mode.THREEDVIDEO, Mode.THREEDPHOTO -> {
+                    val opt = slowMoOption ?: throw IllegalStateException("3D not set")
+                    camX.release()
+                    cam2.bind(opt, true) {
+                    /* onError -> log/surface from caller if needed */
+                    }
                 }
             }
             mode = target
@@ -190,6 +215,7 @@ class HybridSlowMoController(
 
     // ---------- Video actions ----------
 
+    @RequiresApi(Build.VERSION_CODES.P)
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
     fun startRecording(
         withAudio: Boolean = true,
@@ -207,9 +233,68 @@ class HybridSlowMoController(
             }
 
             Mode.SLOWMO -> cam2.startRecording(onStarted, onSaved, onError)
+            Mode.THREEDVIDEO -> {
+                if (ActivityCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.CAMERA
+                    ) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    // TODO: Consider calling
+                    //    ActivityCompat#requestPermissions
+                    // here to request the missing permissions, and then overriding
+                    //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
+                    //                                          int[] grantResults)
+                    // to handle the case where the user grants the permission. See the documentation
+                    // for ActivityCompat#requestPermissions for more details.
+                    return
+                }
+                if (cam2.check3DSupport()) {
+                    cam2.start3DRecordingSbs(
+                        size = Size(1920, 1080),               // per-eye
+                        fps = Range(30, 60),
+                        onStarted = { /* UI */ },
+                        onSaved = onSaved,
+                        onError = onError
+                    )
+                } else {
+                    Toast.makeText(context, "3D not supported", Toast.LENGTH_SHORT).show()
+                }
+            }
+
             Mode.TIMELAPSE -> onError(IllegalStateException("Use startLapseVideo() while in TIMELAPSE mode"))
             Mode.PHOTO -> onError(IllegalStateException("Photo mode has no recording"))
+            Mode.THREEDPHOTO -> onError(IllegalStateException("Photo mode has no recording"))
         }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.P)
+    fun take3DPhoto(
+        withAudio: Boolean = true,
+        onStarted: () -> Unit,
+        onSaved: (Uri) -> Unit,
+        onError: (Throwable) -> Unit
+    ) {
+        if (ActivityCompat.checkSelfPermission(
+                context,
+                Manifest.permission.CAMERA
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            // TODO: Consider calling
+            //    ActivityCompat#requestPermissions
+            // here to request the missing permissions, and then overriding
+            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            //                                          int[] grantResults)
+            // to handle the case where the user grants the permission. See the documentation
+            // for ActivityCompat#requestPermissions for more details.
+            return
+        }
+        cam2.capture3DPhotoSbs(
+            size = Size(1920, 1080), // or 1920x1080, match what you want
+            jpegQuality = 92,
+            onSaved = onSaved,
+            onError = onError
+        )
+
     }
 
     /**
@@ -227,11 +312,39 @@ class HybridSlowMoController(
             }
 
             Mode.SLOWMO -> cam2.stopRecordingWithPlaybackFps(keepAudio, onSaved, onError)
+
+            Mode.THREEDVIDEO -> // Stop SBS
+                cam2.stop3DRecordingSbs(
+                    onSaved = onSaved,
+                    onError = onError
+                )
+
+
             else -> { /* no-op for PHOTO / TIMELAPSE here */
             }
         }
     }
 
+
+    // --------- camera helpers ----------
+    private fun findBackCameraId(): String {
+        val cm = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+        return cm.cameraIdList.first { id ->
+            val c = cm.getCameraCharacteristics(id)
+            c.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK
+        }
+    }
+
+    private fun pickStereoPair(): Pair<String, String> {
+        val cm = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+        val rears = cm.cameraIdList.filter { id ->
+            cm.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING) ==
+                    CameraCharacteristics.LENS_FACING_BACK
+        }
+        require(rears.size >= 2) { "Device needs at least two back cameras for 3D" }
+        // Example: choose the first two
+        return rears[0] to rears[1]
+    }
     // ---------- Time-lapse (CameraX) ----------
 
     /**
@@ -284,7 +397,7 @@ class HybridSlowMoController(
     fun getZoomLevels(): MutableList<Float> {
         when (mode) {
             Mode.VIDEO, Mode.PHOTO, Mode.TIMELAPSE -> return camX.checkZoomValues()
-            Mode.SLOWMO -> return cam2.checkZoomValues()
+            Mode.SLOWMO, Mode.THREEDVIDEO, Mode.THREEDPHOTO -> return cam2.checkZoomValues()
         }
     }
 
@@ -302,21 +415,21 @@ class HybridSlowMoController(
     fun setZoomLevel(ratio: Float) {
         when (mode) {
             Mode.VIDEO, Mode.PHOTO, Mode.TIMELAPSE -> camX.setZoomLevel(ratio)
-            Mode.SLOWMO -> cam2.setZoomLevel(ratio)
+            Mode.SLOWMO, Mode.THREEDVIDEO, Mode.THREEDPHOTO -> cam2.setZoomLevel(ratio)
         }
     }
 
     fun setTorch(enabled: Boolean) {
         when (mode) {
             Mode.VIDEO, Mode.PHOTO, Mode.TIMELAPSE -> camX.setTorch(enabled)
-            Mode.SLOWMO -> cam2.setTorch(enabled)
+            Mode.SLOWMO, Mode.THREEDVIDEO, Mode.THREEDPHOTO -> cam2.setTorch(enabled)
         }
     }
 
     fun enableAutoFocus() {
         when (mode) {
             Mode.VIDEO, Mode.PHOTO, Mode.TIMELAPSE -> camX.enableAutoFocus()
-            Mode.SLOWMO -> cam2.enableAutoFocus()
+            Mode.SLOWMO, Mode.THREEDVIDEO, Mode.THREEDPHOTO -> cam2.enableAutoFocus()
         }
     }
 
@@ -329,7 +442,7 @@ class HybridSlowMoController(
         val n = normalized.coerceIn(0f, 1f)
         when (mode) {
             Mode.VIDEO, Mode.PHOTO, Mode.TIMELAPSE -> camX.setManualFocusNormalized(n)
-            Mode.SLOWMO -> {
+            Mode.SLOWMO, Mode.THREEDVIDEO, Mode.THREEDPHOTO -> {
                 val min = ensureCam2MinFocus()
                 if (min > 0f) {
                     val distance = (1f - n) * min
@@ -342,12 +455,12 @@ class HybridSlowMoController(
     /** For UI rulers to initialize range/labels. */
     fun getMinFocusDistance(): Float = when (mode) {
         Mode.VIDEO, Mode.PHOTO, Mode.TIMELAPSE -> camX.getMinFocusDistance()
-        Mode.SLOWMO -> ensureCam2MinFocus()
+        Mode.SLOWMO, Mode.THREEDVIDEO, Mode.THREEDPHOTO -> ensureCam2MinFocus()
     }
 
     fun getLastManualFocusNormalized(): Float = when (mode) {
         Mode.VIDEO, Mode.PHOTO, Mode.TIMELAPSE -> camX.getLastManualFocusNormalized()
-        Mode.SLOWMO -> 0f // store externally if you want parity
+        Mode.SLOWMO, Mode.THREEDVIDEO, Mode.THREEDPHOTO -> 0f // store externally if you want parity
     }
 
     fun isReady(): Boolean = when (mode) {
@@ -379,4 +492,5 @@ class HybridSlowMoController(
             0f
         }
     }
+    fun check3DSupport(): Boolean = cam2.check3DSupport()
 }

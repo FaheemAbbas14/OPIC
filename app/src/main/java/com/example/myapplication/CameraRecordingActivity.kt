@@ -74,6 +74,7 @@ import com.opic3d.Spatial.trendingvideos.model.SlowMoOption
 import com.opic3d.Spatial.trendingvideos.model.SlowMoResult
 import com.opic3d.Spatial.trendingvideos.model.listBackCameraSlowMoOptions
 import com.opic3d.Spatial.trendingvideos.views.GlowingTimerView
+import com.opic3d.Spatial.trendingvideos.views.OpicTextView
 import com.opic3d.Spatial.trendingvideos.views.RotationLineOverlay
 import com.opic3d.Spatial.trendingvideos.views.ZoomRulerView
 import kotlinx.coroutines.Dispatchers
@@ -86,6 +87,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
 import kotlin.math.roundToInt
+// ADD these for 3D photo
 
 class CameraRecordingActivity : ComponentActivity() {
 
@@ -111,10 +113,11 @@ class CameraRecordingActivity : ComponentActivity() {
     private lateinit var li_Message: LinearLayout
     private lateinit var progressDialog: AlertDialog
     private lateinit var spnOptions: Spinner
+    private lateinit var slowMoOption: OpicTextView
     private lateinit var modeController: ModeSelectorController
 
     // ——— Mode & state ———
-    private enum class CaptureMode { PHOTO, VIDEO, SLOWMO, TIMELAPSE }
+    private enum class CaptureMode { PHOTO, VIDEO, TIMELAPSE,SLOWMO,THREEDPHOTO,THREEDVIDEO}
 
     private var captureMode: CaptureMode = CaptureMode.VIDEO
     private var isRecording = false
@@ -200,7 +203,7 @@ class CameraRecordingActivity : ComponentActivity() {
         zoomControlLayout = findViewById(R.id.zoomControlBg)
         zoomSwipeDetectRecyclerView = findViewById(R.id.zoomControlRecyclerView)
         angleLineView = findViewById(R.id.lineOverlay)
-
+        slowMoOption = findViewById(R.id.slowMoOption)
         previewView.implementationMode = PreviewView.ImplementationMode.COMPATIBLE
         previewView.scaleType = PreviewView.ScaleType.FILL_CENTER
 
@@ -222,12 +225,14 @@ class CameraRecordingActivity : ComponentActivity() {
         rv.requestLayout()
 
         // Mode controller
-        modeController = ModeSelectorController(rv) { index ->
+        modeController = ModeSelectorController(rv,controller.check3DSupport()) { index ->
             captureMode = when (index) {
                 0 -> CaptureMode.VIDEO
                 1 -> CaptureMode.PHOTO
                 2 -> CaptureMode.TIMELAPSE
-                else -> CaptureMode.SLOWMO
+                3 -> CaptureMode.SLOWMO
+                4 -> CaptureMode.THREEDPHOTO
+                else -> CaptureMode.THREEDVIDEO
             }
             toggleMode()
         }
@@ -328,6 +333,7 @@ class CameraRecordingActivity : ComponentActivity() {
     // ——— Bind / Rebind ———
     private fun toggleMode() {
         spnOptions.visibility = if (captureMode == CaptureMode.SLOWMO) View.GONE else View.GONE
+        slowMoOption.visibility = if (captureMode == CaptureMode.SLOWMO) View.VISIBLE else View.GONE
         updateUiForMode()
         rebindForCurrentMode()
         vibrateOnce()
@@ -373,6 +379,7 @@ class CameraRecordingActivity : ComponentActivity() {
                         ) {
                             return@launch
                         }
+                        slowMoOption.timerText= selectedOption?.label!!
                         controller.bindSlowMo(selectedOption!!) { e ->
                             Log.e("Hybrid", "Slow-mo bind failed", e)
                             runOnUiThread {
@@ -389,7 +396,59 @@ class CameraRecordingActivity : ComponentActivity() {
                         afterBindCommon()
                         zoomControlAdapter()
                     }
+                    CaptureMode.THREEDPHOTO -> {
 
+                        controller.release()
+                        if (ActivityCompat.checkSelfPermission(
+                                this@CameraRecordingActivity,
+                                Manifest.permission.CAMERA
+                            ) != PackageManager.PERMISSION_GRANTED
+                        ) {
+                            return@launch
+                        }
+                        slowMoOption.timerText= selectedOption?.label!!
+                        controller.bindTHREED(selectedOption!!) { e ->
+                            Log.e("Hybrid", "3D bind failed", e)
+                            runOnUiThread {
+                                modeController.setIndex(0)
+                                captureMode = CaptureMode.PHOTO
+                                toggleMode()
+                                Toast.makeText(
+                                    this@CameraRecordingActivity,
+                                    "3D unsupported: ${e.message}",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        }
+                        afterBindCommon()
+                        zoomControlAdapter()
+                    }
+                    CaptureMode.THREEDVIDEO -> {
+                        controller.release()
+                        if (ActivityCompat.checkSelfPermission(
+                                this@CameraRecordingActivity,
+                                Manifest.permission.CAMERA
+                            ) != PackageManager.PERMISSION_GRANTED
+                        ) {
+                            return@launch
+                        }
+                        slowMoOption.timerText= selectedOption?.label!!
+                        controller.bindTHREED(selectedOption!!) { e ->
+                            Log.e("Hybrid", "3D bind failed", e)
+                            runOnUiThread {
+                                modeController.setIndex(0)
+                                captureMode = CaptureMode.VIDEO
+                                toggleMode()
+                                Toast.makeText(
+                                    this@CameraRecordingActivity,
+                                    "3D unsupported: ${e.message}",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        }
+                        afterBindCommon()
+                        zoomControlAdapter()
+                    }
                     CaptureMode.TIMELAPSE -> {
                         // ✅ Timelapse uses CameraX video bind (not Camera2 slow-mo)
                         controller.release()
@@ -432,6 +491,7 @@ class CameraRecordingActivity : ComponentActivity() {
         videobuttonRecording.setOnClickListener {
             when (captureMode) {
                 CaptureMode.PHOTO -> if (!isRotated) takePhoto()
+                CaptureMode.THREEDPHOTO -> if (!isRotated) take3DPhoto()
                 else -> if (!isRotated) {
                     zoombutton.visibility = View.VISIBLE
                     when {
@@ -613,6 +673,23 @@ class CameraRecordingActivity : ComponentActivity() {
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.P)
+    @RequiresPermission(Manifest.permission.RECORD_AUDIO)
+    private fun take3DPhoto() {
+        if (isSoundOn) shutter.play(MediaActionSound.SHUTTER_CLICK)
+        controller.take3DPhoto(
+            withAudio = true,
+            onStarted = { isRecording = true },
+            onSaved = { uri -> showMediaPopup(uri,true) },
+            onError = { e ->
+                stopTimer()
+                isRecording = false
+                Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        )
+
+    }
+
     // Saves any content Uri to a temp file, returns File
     private fun saveUriToTempFile(uri: Uri, prefix: String = "IMG_", ext: String = ".jpg"): File? {
         return try {
@@ -649,6 +726,7 @@ class CameraRecordingActivity : ComponentActivity() {
     }
 
     // ——— Start/Stop/Timer ———
+    @RequiresApi(Build.VERSION_CODES.P)
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
     private fun startVideoRecording() {
         isRecording = true
@@ -689,7 +767,9 @@ class CameraRecordingActivity : ComponentActivity() {
                     onStarted = {},
                     onSaved = { uri -> showMediaPopup(uri) },
                     onError = { e ->
+                        stopTimer()
                         isRecording = false
+                        Log.d("Video", "Start error ${e.message}")
                         Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_LONG).show()
                     }
                 )
@@ -800,13 +880,15 @@ class CameraRecordingActivity : ComponentActivity() {
 
     private fun updateUiForMode() {
         timerView.visibility = if (captureMode != CaptureMode.PHOTO) View.VISIBLE else View.GONE
-        if (captureMode == CaptureMode.PHOTO) {
+        if (captureMode == CaptureMode.PHOTO ||captureMode == CaptureMode.THREEDPHOTO ) {
             videobuttonRecording.setBackgroundResource(R.drawable.circle_button_bg)
             videobuttonRecording.setImageResource(R.drawable.ic_camera)
             timerView.isTimerRunning = false
+            timerView.visibility= View.GONE
         } else {
             videobuttonRecording.setBackgroundResource(R.drawable.circle_button_bg)
             videobuttonRecording.setImageResource(R.drawable.recordicon)
+            timerView.visibility= View.VISIBLE
         }
     }
 
@@ -912,12 +994,24 @@ class CameraRecordingActivity : ComponentActivity() {
                             }
 
                             CaptureMode.SLOWMO -> {
+                                modeController.setIndex(4); CaptureMode.THREEDPHOTO
+                            }
+                            CaptureMode.THREEDPHOTO -> {
+                                modeController.setIndex(5); CaptureMode.THREEDVIDEO
+                            }
+                            CaptureMode.THREEDVIDEO -> {
                                 modeController.setIndex(0); CaptureMode.VIDEO
                             }
                         }
                         toggleMode()
                     } else if (deltaY < -120) {
                         captureMode = when (captureMode) {
+                            CaptureMode.THREEDVIDEO -> {
+                                modeController.setIndex(4); CaptureMode.THREEDPHOTO
+                            }
+                            CaptureMode.THREEDPHOTO -> {
+                                modeController.setIndex(3); CaptureMode.SLOWMO
+                            }
                             CaptureMode.SLOWMO -> {
                                 modeController.setIndex(2); CaptureMode.TIMELAPSE
                             }
@@ -1268,5 +1362,6 @@ class CameraRecordingActivity : ComponentActivity() {
             runCatching { extractor.release() }
         }
     }
+
 
 }
