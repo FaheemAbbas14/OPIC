@@ -7,6 +7,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
+import android.graphics.ImageFormat
 import android.graphics.Rect
 import android.graphics.SurfaceTexture
 import android.graphics.drawable.BitmapDrawable
@@ -60,6 +61,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 import kotlin.math.ln
 import kotlin.math.max
@@ -937,7 +939,7 @@ class Camera2Controller(
         if (pipeline == Pipeline.SBS3D) return onError(IllegalStateException("Use start3DRecordingSbs for SBS"))
 
         val dev = cameraDevice ?: return onError(IllegalStateException("Camera not ready"))
-        val file = createOutputFile()
+        val file = createOutputFile(context, "SBS3D_Video", ".mp4")
 
         val recordFps = when (pipeline) {
             Pipeline.HFR -> (forcedHsRange?.upper ?: getCurrentAeFpsRange()?.upper)
@@ -1045,7 +1047,7 @@ class Camera2Controller(
         if (pipeline == Pipeline.HFR) smoothSwitchTo(Pipeline.STD60, withRecorder = false)
         pipeline = Pipeline.TIMELAPSE
 
-        val file = createOutputFile()
+        val file = createOutputFile(context, "TimeLapse", ".mp4")
         lastRecordFps = playbackFps
 
         mediaRecorder = MediaRecorder().apply {
@@ -1602,22 +1604,39 @@ class Camera2Controller(
         null
     }
 
+    @Suppress("DEPRECATION")
     private fun createOutputFile(
-        prefix: String = when (pipeline) {
-            Pipeline.TIMELAPSE -> "TIMELAPSE"
-            Pipeline.HFR -> "SLOWMO"
-            Pipeline.SBS3D -> "SBS3D"
-            else -> "VIDEO"
-        }
+        context: Context,
+        prefix: String = "SBS3D_Photo",
+        extension: String? = null
     ): File {
         val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        val dir = File(
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES),
-            "OPIC"
-        )
-        if (!dir.exists()) dir.mkdirs()
-        return File(dir, "${prefix}_$ts.mp4")
+
+        val ext = when {
+            extension != null -> extension
+            prefix.contains("photo", true) || prefix.contains("image", true) -> ".jpg"
+            prefix.contains("pic", true) -> ".jpg"
+            prefix.contains("video", true) || prefix.contains("record", true) -> ".mp4"
+            else -> ".mp4"
+        }
+
+        // 1️⃣ Create temp file in internal cache (always works)
+        val internalDir = File(context.cacheDir, "opic_temp").apply {
+            if (!exists()) mkdirs()
+        }
+
+        val tempFile = File(internalDir, "${prefix}_$ts$ext")
+
+        try {
+            tempFile.parentFile?.mkdirs()
+            tempFile.createNewFile()
+        } catch (e: Exception) {
+            Log.e("Camera2Controller", "Failed to create internal file", e)
+        }
+
+        return tempFile
     }
+
 
     private fun logRecorderSizesOnce() {
         try {
@@ -1840,7 +1859,7 @@ class Camera2Controller(
             manager ?: run { onError(IllegalStateException("CameraManager not ready")); return }
 
         // Prepare recorder for double width (full-SBS)
-        val file = createOutputFile("SBS3D")
+        val file = createOutputFile(context, "SBS3D_Video", ".mp4")
         val outW = (size.width * 2 / 2) * 2
         val outH = (size.height / 2) * 2
 
@@ -2644,183 +2663,186 @@ class Camera2Controller(
     @RequiresApi(28)
     @RequiresPermission(Manifest.permission.CAMERA)
     fun capture3DPhotoSbs(
+        context: Context,
         size: Size = Size(1920, 1080),
         jpegQuality: Int = 92,
         onSaved: (Uri) -> Unit,
         onError: (Throwable) -> Unit
     ) {
         val cm = manager ?: return onError(IllegalStateException("CameraManager not ready"))
-
-        // Reuse your existing helper from the controller:
         val logical = findLogicalBackWithTwoPhysicals(cm)
-            ?: return onError(IllegalStateException("Device has no logical back multi-camera (wide/ultrawide). Cannot capture 3D photo."))
+            ?: return onError(IllegalStateException("No logical back camera with 2 physicals found"))
 
         val (logicalId, physicals) = logical
-        val leftId = physicals[0]
-        val rightId = physicals.firstOrNull { it != leftId }
-            ?: return onError(IllegalStateException("No second physical camera under logical $logicalId"))
+        val leftId = physicals.firstOrNull() ?: return onError(IllegalStateException("Missing left camera"))
+        val rightId = physicals.getOrNull(1) ?: return onError(IllegalStateException("Missing right camera"))
 
-        // Prepare readers for both eyes
-        val leftReader =
-            ImageReader.newInstance(size.width, size.height, android.graphics.ImageFormat.JPEG, 1)
-        val rightReader =
-            ImageReader.newInstance(size.width, size.height, android.graphics.ImageFormat.JPEG, 1)
+        // Prepare two JPEG readers
+        val leftReader = ImageReader.newInstance(size.width, size.height, ImageFormat.JPEG, 2)
+        val rightReader = ImageReader.newInstance(size.width, size.height, ImageFormat.JPEG, 2)
+
         val leftSurface = leftReader.surface
         val rightSurface = rightReader.surface
 
         val leftLatch = CountDownLatch(1)
         val rightLatch = CountDownLatch(1)
-        var leftBytes: ByteArray? = null
-        var rightBytes: ByteArray? = null
+        val leftBytes = AtomicReference<ByteArray>()
+        val rightBytes = AtomicReference<ByteArray>()
 
-        leftReader.setOnImageAvailableListener({ r ->
-            r.acquireNextImage()?.use { leftBytes = imageToJpegBytes(it) }
-            leftLatch.countDown()
-        }, camHandler)
+        fun acquireImageBytes(reader: ImageReader, target: AtomicReference<ByteArray>, latch: CountDownLatch) {
+            reader.acquireLatestImage()?.use { img ->
+                val buf = img.planes[0].buffer
+                val data = ByteArray(buf.remaining())
+                buf.get(data)
+                target.set(data)
+            }
+            latch.countDown()
+        }
 
-        rightReader.setOnImageAvailableListener({ r ->
-            r.acquireNextImage()?.use { rightBytes = imageToJpegBytes(it) }
-            rightLatch.countDown()
-        }, camHandler)
+        leftReader.setOnImageAvailableListener({ acquireImageBytes(leftReader, leftBytes, leftLatch) }, camHandler)
+        rightReader.setOnImageAvailableListener({ acquireImageBytes(rightReader, rightBytes, rightLatch) }, camHandler)
 
+        // Camera device callback
         val stateCb = object : CameraDevice.StateCallback() {
             override fun onOpened(device: CameraDevice) {
-                // Build session with physical routing
                 try {
-                    val outLeft =
-                        OutputConfiguration(leftSurface).apply { setPhysicalCameraId(leftId) }
-                    val outRight =
-                        OutputConfiguration(rightSurface).apply { setPhysicalCameraId(rightId) }
+                    val outLeft = OutputConfiguration(leftSurface).apply { setPhysicalCameraId(leftId) }
+                    val outRight = OutputConfiguration(rightSurface).apply { setPhysicalCameraId(rightId) }
 
-                    val sessionCb = object : CameraCaptureSession.StateCallback() {
-                        override fun onConfigured(session: CameraCaptureSession) {
-                            try {
-                                val req =
-                                    device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)
-                                        .apply {
-                                            addTarget(leftSurface)
-                                            addTarget(rightSurface)
-                                            set(
-                                                CaptureRequest.CONTROL_MODE,
-                                                CaptureRequest.CONTROL_MODE_AUTO
-                                            )
-                                            set(
-                                                CaptureRequest.CONTROL_AE_MODE,
-                                                CaptureRequest.CONTROL_AE_MODE_ON
-                                            )
-                                            set(
-                                                CaptureRequest.CONTROL_AWB_MODE,
-                                                CaptureRequest.CONTROL_AWB_MODE_AUTO
-                                            )
-                                            // Optional: lock orientation/exposure as needed
-                                        }.build()
-
-                                session.capture(
-                                    req,
-                                    object : CameraCaptureSession.CaptureCallback() {},
-                                    camHandler
-                                )
-                            } catch (t: Throwable) {
-                                onError(t)
-                                safeClose(
-                                    device,
-                                    session = null,
-                                    readers = arrayOf(leftReader, rightReader)
-                                )
-                            }
-                        }
-
-                        override fun onConfigureFailed(session: CameraCaptureSession) {
-                            onError(IllegalStateException("SBS photo: session configure failed"))
-                            safeClose(device, session, arrayOf(leftReader, rightReader))
-                        }
-                    }
-
-                    val exec = { r: Runnable -> (camHandler ?: mainHandler).post(r) }
-                    val sessionConfig = SessionConfiguration(
+                    val sessionCfg = SessionConfiguration(
                         SessionConfiguration.SESSION_REGULAR,
                         listOf(outLeft, outRight),
-                        { r -> exec(r) },
-                        sessionCb
-                    )
-                    device.createCaptureSession(sessionConfig)
+                        { r -> (camHandler ?: mainHandler).post(r) },
+                        object : CameraCaptureSession.StateCallback() {
+                            override fun onConfigured(session: CameraCaptureSession) {
+                                try {
+                                    val req = device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
+                                        addTarget(leftSurface)
+                                        addTarget(rightSurface)
+                                        set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
+                                        set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+                                        set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
+                                    }
+                                    session.capture(req.build(), null, camHandler)
+                                } catch (t: Throwable) {
+                                    onError(t)
+                                }
+                            }
 
+                            override fun onConfigureFailed(session: CameraCaptureSession) {
+                                onError(RuntimeException("SBS3D photo session configuration failed"))
+                            }
+                        }
+                    )
+
+                    device.createCaptureSession(sessionCfg)
                 } catch (t: Throwable) {
                     onError(t)
-                    safeClose(device, session = null, readers = arrayOf(leftReader, rightReader))
                 }
             }
 
             override fun onDisconnected(device: CameraDevice) {
-                onError(RuntimeException("SBS photo: camera disconnected"))
-                safeClose(device, session = null, readers = arrayOf(leftReader, rightReader))
+                onError(RuntimeException("SBS3D photo: device disconnected"))
             }
 
             override fun onError(device: CameraDevice, error: Int) {
                 val why = explainCamError(error)
-                onError(RuntimeException("SBS photo open failed: $why ($error)"))
-                safeClose(device, session = null, readers = arrayOf(leftReader, rightReader))
+                onError(RuntimeException("SBS3D photo open failed: $why ($error)"))
             }
         }
 
-        // Open the logical multi-camera just for this still capture
-        try {
-            cm.openCamera(logicalId, stateCb, camHandler)
-        } catch (t: Throwable) {
-            onError(t)
-            return
-        }
+        // ✅ Use safeOpenCamera() to avoid “open failed” errors
+        safeOpenCamera(logicalId, stateCb)
 
-        // Background wait & stitch
+        // Merge + save thread
         Thread {
             try {
-                // Wait for both JPEGs (with timeout)
-                leftLatch.await(2000, TimeUnit.MILLISECONDS)
-                rightLatch.await(2000, TimeUnit.MILLISECONDS)
+                // Wait up to 3 s for both JPEGs
+                leftLatch.await(3, TimeUnit.SECONDS)
+                rightLatch.await(3, TimeUnit.SECONDS)
 
-                val l = leftBytes ?: throw IllegalStateException("Left eye not captured")
-                val r = rightBytes ?: throw IllegalStateException("Right eye not captured")
+                val l = leftBytes.get() ?: throw IllegalStateException("Left image missing")
+                val r = rightBytes.get() ?: throw IllegalStateException("Right image missing")
 
                 val leftBmp = BitmapFactory.decodeByteArray(l, 0, l.size)
-                    ?: throw IllegalStateException("Left decode failed")
                 val rightBmp = BitmapFactory.decodeByteArray(r, 0, r.size)
-                    ?: throw IllegalStateException("Right decode failed")
 
-                // (They should be identical size due to same ImageReader config)
                 val outW = leftBmp.width + rightBmp.width
                 val outH = max(leftBmp.height, rightBmp.height)
-                val out = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
-                val c = Canvas(out)
-                c.drawBitmap(leftBmp, 0f, 0f, null)
-                c.drawBitmap(rightBmp, leftBmp.width.toFloat(), 0f, null)
-
-                val file = createOutputFile("OPIC3DPHOTO")
-                FileOutputStream(file).use { fos ->
-                    out.compress(Bitmap.CompressFormat.JPEG, jpegQuality.coerceIn(70, 100), fos)
+                val combined = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
+                Canvas(combined).apply {
+                    drawBitmap(leftBmp, 0f, 0f, null)
+                    drawBitmap(rightBmp, leftBmp.width.toFloat(), 0f, null)
                 }
 
-                // Media scan
-                MediaScannerConnection.scanFile(
-                    context, arrayOf(file.absolutePath), arrayOf("image/jpeg"), null
-                )
+                // ✅ Save using your createOutputFile()
+                val file = createOutputFile(context,"SBS3D_Photo", ".jpg")
+                FileOutputStream(file).use { combined.compress(Bitmap.CompressFormat.JPEG, jpegQuality, it) }
 
+                // Register in gallery
+                MediaScannerConnection.scanFile(
+                    context,
+                    arrayOf(file.absolutePath),
+                    arrayOf("image/jpeg"),
+                    null
+                )
                 mainHandler.post { onSaved(Uri.fromFile(file)) }
             } catch (t: Throwable) {
                 mainHandler.post { onError(t) }
             } finally {
-                // Readers are owned by camera session thread; close them safely there too
+                // Cleanup
                 (camHandler ?: mainHandler).post {
-                    try {
-                        leftReader.close()
-                    } catch (_: Throwable) {
-                    }
-                    try {
-                        rightReader.close()
-                    } catch (_: Throwable) {
-                    }
+                    try { leftReader.close() } catch (_: Throwable) {}
+                    try { rightReader.close() } catch (_: Throwable) {}
                 }
             }
         }.start()
+    }
+
+    // ===================================================
+// Safe camera open helper (prevents Pixel8 open crash)
+// ===================================================
+    @Volatile private var cameraOpening = false
+
+    @RequiresPermission(Manifest.permission.CAMERA)
+    private fun safeOpenCamera(id: String, cb: CameraDevice.StateCallback) {
+        if (cameraOpening) {
+            Log.w(TAG, "Camera $id is already opening — skipping")
+            return
+        }
+        if (cameraDevice != null && cameraDevice!!.id == id) {
+            Log.d(TAG, "Camera $id already open → reusing existing instance")
+            cb.onOpened(cameraDevice!!)
+            return
+        }
+
+        cameraOpening = true
+        val handler = camHandler ?: Handler(Looper.getMainLooper())
+
+        try {
+            manager?.openCamera(id, object : CameraDevice.StateCallback() {
+                override fun onOpened(dev: CameraDevice) {
+                    cameraOpening = false
+                    cameraDevice = dev
+                    cb.onOpened(dev)
+                }
+
+                override fun onDisconnected(dev: CameraDevice) {
+                    cameraOpening = false
+                    cb.onDisconnected(dev)
+                }
+
+                override fun onError(dev: CameraDevice, error: Int) {
+                    cameraOpening = false
+                    val why = explainCamError(error)
+                    Log.e(TAG, "Camera open failed: $why ($error)")
+                    cb.onError(dev, error)
+                }
+            }, handler)
+        } catch (t: Throwable) {
+            cameraOpening = false
+            Log.e(TAG, "Exception during openCamera", t)
+        }
     }
 
     /** Safely close combo resources used in one-off SBS photo capture */

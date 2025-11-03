@@ -289,6 +289,7 @@ class HybridSlowMoController(
             return
         }
         cam2.capture3DPhotoSbs(
+            context,
             size = Size(1920, 1080), // or 1920x1080, match what you want
             jpegQuality = 92,
             onSaved = onSaved,

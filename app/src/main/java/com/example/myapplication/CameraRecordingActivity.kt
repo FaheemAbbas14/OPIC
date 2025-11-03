@@ -532,7 +532,22 @@ class CameraRecordingActivity : ComponentActivity() {
                                         }
                                     )
                                 }
-
+                                CaptureMode.THREEDVIDEO -> {
+                                    keepDeviceAwake(false)
+                                    controller.stopRecording(
+                                        keepAudio = false,
+                                        onSaved = { uri ->
+                                            isRecording = false
+                                            Handler(Looper.getMainLooper()).post {
+                                                showMediaPopup(uri)
+                                            }
+                                        },
+                                        onError = { e ->
+                                            isRecording = false
+                                            Log.e("SlowMo", "Stop error", e)
+                                        }
+                                    )
+                                }
                                 CaptureMode.TIMELAPSE -> {
                                     keepDeviceAwake(false)
                                     controller.stopLapseVideo(
@@ -682,6 +697,7 @@ class CameraRecordingActivity : ComponentActivity() {
             onStarted = { isRecording = true },
             onSaved = { uri -> showMediaPopup(uri,true) },
             onError = { e ->
+                e.printStackTrace()
                 stopTimer()
                 isRecording = false
                 Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_LONG).show()
