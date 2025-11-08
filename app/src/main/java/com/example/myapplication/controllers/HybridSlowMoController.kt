@@ -248,15 +248,13 @@ class HybridSlowMoController(
                     // for ActivityCompat#requestPermissions for more details.
                     return
                 }
-                if (cam2.check3DSupport()) {
+
                     cam2.start3DRecordingSbs(
                         onStarted = { /* UI */ },
                         onSaved = onSaved,
                         onError = onError
                     )
-                } else {
-                    Toast.makeText(context, "3D not supported", Toast.LENGTH_SHORT).show()
-                }
+
             }
 
             Mode.TIMELAPSE -> onError(IllegalStateException("Use startLapseVideo() while in TIMELAPSE mode"))
@@ -287,7 +285,7 @@ class HybridSlowMoController(
             return
         }
         cam2.capture3DPhotoSbs(
-            context,
+            context=context,
             jpegQuality = 92,
             onSaved = onSaved,
             onError = onError
@@ -410,6 +408,7 @@ class HybridSlowMoController(
 
     // ---------- Controls (Zoom / Focus / Torch) ----------
 
+    @RequiresApi(Build.VERSION_CODES.P)
     fun setZoomLevel(ratio: Float) {
         when (mode) {
             Mode.VIDEO, Mode.PHOTO, Mode.TIMELAPSE -> camX.setZoomLevel(ratio)
@@ -490,5 +489,5 @@ class HybridSlowMoController(
             0f
         }
     }
-    fun check3DSupport(): Boolean = cam2.check3DSupport()
+
 }

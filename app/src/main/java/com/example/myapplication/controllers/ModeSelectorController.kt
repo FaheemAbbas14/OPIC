@@ -15,7 +15,6 @@ import com.opic3d.Spatial.trendingvideos.adapters.CameraModeAdapter
 
 class ModeSelectorController(
     private val rv: RecyclerView,
-    private val check3d: Boolean,
     private val onSelectionChanged: (index: Int) -> Unit
 ) {
     // Horizontal list with one-step pager snap

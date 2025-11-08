@@ -225,7 +225,7 @@ class CameraRecordingActivity : ComponentActivity() {
         rv.requestLayout()
 
         // Mode controller
-        modeController = ModeSelectorController(rv,controller.check3DSupport()) { index ->
+        modeController = ModeSelectorController(rv) { index ->
             captureMode = when (index) {
                 0 -> CaptureMode.VIDEO
                 1 -> CaptureMode.PHOTO

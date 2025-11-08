@@ -163,7 +163,7 @@ class Camera2Controller(
     private var preferAspectFromOption = false
     private var allowDownscaleForHfr = true
     private var activeSize: Size? = null
-    private fun currentSize(): Size = activeSize ?: option?.size ?: Size(1280, 720)
+    private fun currentSize(): Size = activeSize ?: option?.size ?: Size(1920, 1080)
 
     // HS fps range we forced
     private var forcedHsRange: Range<Int>? = null
@@ -445,10 +445,11 @@ class Camera2Controller(
         return true
     }
 
+    @RequiresPermission(Manifest.permission.CAMERA)
     @RequiresApi(28)
     private fun startSbs3dPreview(
-        size: Size = Size(1280, 720),
-        fps: Range<Int> = Range(30, 30),
+        size: Size = Size(1920, 1080),
+        fps: Range<Int> = Range(60, 60),
         onReady: () -> Unit,
         onError: (Throwable) -> Unit
     ) {
@@ -953,7 +954,7 @@ class Camera2Controller(
             Pipeline.STD60 -> pickStd60FpsRange()?.upper ?: 60
             Pipeline.VERY_DARK -> 60
             Pipeline.TIMELAPSE -> 60
-            Pipeline.SBS3D -> 30
+            Pipeline.SBS3D -> 60
         }
         lastRecordFps = recordFps
         mediaRecorder = MediaRecorder().apply {
@@ -1098,46 +1099,6 @@ class Camera2Controller(
         outputFile = file
     }
 
-    fun stopTimeLapse(
-        normalizePlaybackFps: Boolean = false,
-        onSaved: (Uri) -> Unit,
-        onError: (Throwable) -> Unit
-    ) {
-        finishRecorder(
-            makeOutput = { srcFile ->
-                if (!normalizePlaybackFps) srcFile else retieToFixedFps(
-                    src = srcFile,
-                    targetFps = timelapsePlaybackFps,
-                    keepAudio = true
-                )
-            },
-            onSaved = { uri ->
-                mainHandler.post {
-                    pipeline = Pipeline.STD60; logMode("stopTimeLapse")
-                }; onSaved(uri)
-            },
-            onError = onError
-        )
-    }
-
-    fun startTimeLapseX(
-        multiplier: Double,
-        playbackFps: Int = 30,
-        onStarted: () -> Unit,
-        onError: (Throwable) -> Unit
-    ) {
-        if (multiplier <= 0.0) return onError(IllegalArgumentException("Multiplier must be > 0"))
-        val rawCapture = playbackFps / multiplier
-        val captureFps = rawCapture.coerceIn(0.5, playbackFps.toDouble())
-        startTimeLapse(captureFps, playbackFps, onStarted, onError)
-    }
-
-    fun parseSpeedMultiplier(spec: String): Double? {
-        val s = spec.trim().lowercase(Locale.US)
-        val number = s.removeSuffix("x").toDoubleOrNull()
-        return number?.takeIf { it > 0.0 }
-    }
-
     // Shared stop logic
     private fun finishRecorder(
         makeOutput: (File) -> File,
@@ -1270,16 +1231,6 @@ class Camera2Controller(
         // Just apply the same crop region to the whole request.
         // On logical multi-camera devices the HAL will replicate it to both lenses.
         set(CaptureRequest.SCALER_CROP_REGION, crop)
-    }
-
-    private fun getActiveArraySize(cameraId: String?): Rect? {
-        if (cameraId == null) return null
-        return try {
-            manager?.getCameraCharacteristics(cameraId)
-                ?.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
-        } catch (_: Throwable) {
-            null
-        }
     }
 
     @RequiresApi(Build.VERSION_CODES.P)
@@ -1593,21 +1544,7 @@ class Camera2Controller(
         sessionClosedLatch = null
     }
 
-    private fun createMoviesUriViaMediaStore(): Uri? = try {
-        val resolver = context.contentResolver
-        val values = android.content.ContentValues().apply {
-            put(
-                android.provider.MediaStore.MediaColumns.DISPLAY_NAME,
-                "VID_${System.currentTimeMillis()}.mp4"
-            )
-            put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
-            put(android.provider.MediaStore.Video.Media.RELATIVE_PATH, "Movies/OPIC")
-            put(android.provider.MediaStore.Video.Media.IS_PENDING, 1)
-        }
-        resolver.insert(android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
-    } catch (_: Throwable) {
-        null
-    }
+
 
     @Suppress("DEPRECATION")
     private fun createOutputFile(
@@ -1680,10 +1617,7 @@ class Camera2Controller(
         )
     }
 
-    fun suggestTimeLapseCaptureFps(intervalSeconds: Double): Int {
-        val fps = (1.0 / intervalSeconds).coerceIn(0.5, 30.0)
-        return fps.toInt().coerceAtLeast(1)
-    }
+
 
     fun release() {
         ready = false
@@ -1787,23 +1721,7 @@ class Camera2Controller(
         return null
     }
 
-    fun canDoSbs3D(): Boolean {
-        // logical multi-cam?
-        for (id in manager?.cameraIdList!!) {
-            val ch = manager?.getCameraCharacteristics(id)
-            val caps = ch?.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES) ?: intArrayOf()
-            val physicals = ch?.physicalCameraIds
-            val isLogical =
-                caps.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_LOGICAL_MULTI_CAMERA)
-            if (isLogical && physicals != null && physicals.size >= 2) return true
-        }
-        // concurrent fallback? (API 29+)
-        return if (Build.VERSION.SDK_INT >= 29) {
-            val sets: List<Set<String>> =
-                manager?.concurrentCameraIds?.map { it.toSet() }?.toList() ?: emptyList()
-            sets.any { it.size >= 2 }
-        } else false
-    }
+
 
     private fun findPreviewSurface(): Surface? {
         for (i in 0 until previewView.childCount) {
@@ -2246,14 +2164,6 @@ class Camera2Controller(
 
     }
 
-    // ADD: convert Image (JPEG) → ByteArray
-    private fun imageToJpegBytes(img: Image): ByteArray {
-        val plane = img.planes.firstOrNull() ?: throw IllegalStateException("No image planes")
-        val buf: ByteBuffer = plane.buffer
-        val bytes = ByteArray(buf.remaining())
-        buf.get(bytes)
-        return bytes
-    }
 
     /**
      * Capture one FULL-SBS 3D photo by firing two JPEG stills from a logical multi-camera
@@ -2490,27 +2400,6 @@ class Camera2Controller(
         }
     }
 
-    /** Safely close combo resources used in one-off SBS photo capture */
-    private fun safeClose(
-        device: CameraDevice?,
-        session: CameraCaptureSession? = null,
-        readers: Array<ImageReader> = emptyArray()
-    ) {
-        try {
-            session?.close()
-        } catch (_: Throwable) {
-        }
-        try {
-            device?.close()
-        } catch (_: Throwable) {
-        }
-        readers.forEach { r ->
-            try {
-                r.close()
-            } catch (_: Throwable) {
-            }
-        }
-    }
 
     private fun getFocalLength(cameraId: String?): Float {
         if (cameraId == null) return 0f
