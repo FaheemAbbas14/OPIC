@@ -250,8 +250,6 @@ class HybridSlowMoController(
                 }
                 if (cam2.check3DSupport()) {
                     cam2.start3DRecordingSbs(
-                        size = Size(1920, 1080),               // per-eye
-                        fps = Range(30, 60),
                         onStarted = { /* UI */ },
                         onSaved = onSaved,
                         onError = onError
@@ -290,7 +288,6 @@ class HybridSlowMoController(
         }
         cam2.capture3DPhotoSbs(
             context,
-            size = Size(1920, 1080), // or 1920x1080, match what you want
             jpegQuality = 92,
             onSaved = onSaved,
             onError = onError

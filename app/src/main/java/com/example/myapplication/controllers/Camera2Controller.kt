@@ -29,15 +29,8 @@ import android.media.ImageReader
 import android.media.MediaRecorder
 import android.media.MediaScannerConnection
 import android.net.Uri
-import android.opengl.EGL14
-import android.opengl.EGLConfig
-import android.opengl.EGLContext
-import android.opengl.EGLDisplay
 import android.opengl.EGLSurface
-import android.opengl.GLES11Ext
-import android.opengl.GLES20
 import android.os.Build
-import android.os.Environment
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
@@ -46,11 +39,11 @@ import android.util.Range
 import android.util.Size
 import android.view.Surface
 import android.view.TextureView
-import android.widget.Toast
 import androidx.annotation.RequiresApi
 import androidx.annotation.RequiresPermission
 import androidx.camera.view.PreviewView
 import androidx.core.animation.addListener
+import com.opic3d.Spatial.trendingvideos.controllers.gl.SbsGlComposer
 import com.opic3d.Spatial.trendingvideos.helper.retieToFixedFps
 import com.opic3d.Spatial.trendingvideos.model.SlowMoOption
 import java.io.File
@@ -91,7 +84,7 @@ class Camera2Controller(
     // Surfaces
     private var previewSurface: Surface? = null
     private var recorderSurface: Surface? = null
-
+    private val sbsSize: Size = Size(1920, 1080)
     // Recording
     private var mediaRecorder: MediaRecorder? = null
     private var outputFile: File? = null
@@ -305,44 +298,46 @@ class Camera2Controller(
                 onError(IllegalArgumentException("bind(): SlowMoOption.cameraId is blank"))
                 return
             }
+            try {
+                val chars = manager?.getCameraCharacteristics(camId)
 
-            val chars = manager?.getCameraCharacteristics(camId)
+                if (chars != null) {
+                    aeCompRange = chars.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE)
+                    activeArrayRect = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
+                    maxDigitalZoom =
+                        chars.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM) ?: 1f
+                    zoomLevel = zoomLevel.coerceIn(1f, maxDigitalZoom.coerceAtMost(5f))
 
-            if (chars != null) {
-                aeCompRange = chars.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE)
-                activeArrayRect = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
-                maxDigitalZoom =
-                    chars.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM) ?: 1f
-                zoomLevel = zoomLevel.coerceIn(1f, maxDigitalZoom.coerceAtMost(5f))
+                    val apertures = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_APERTURES)
+                    if (apertures != null && apertures.isNotEmpty()) lensAperture =
+                        apertures.minOrNull() ?: apertures[0]
+                    Log.d(TAG, "Aperture set for EV100: f/$lensAperture")
 
-                val apertures = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_APERTURES)
-                if (apertures != null && apertures.isNotEmpty()) lensAperture =
-                    apertures.minOrNull() ?: apertures[0]
-                Log.d(TAG, "Aperture set for EV100: f/$lensAperture")
-
-                val wantFps = opt.fpsRange.upper
-                val hsPick =
-                    if (autoSelectBestHfrSize) pickMaxHsSizeForFps(chars, wantFps) else null
-                if (hsPick != null) {
-                    activeSize = hsPick.first
-                    forcedHsRange = hsPick.second
-                    Log.d(
-                        TAG,
-                        "Auto HFR pick for ${wantFps}fps: ${activeSize!!.width}x${activeSize!!.height}, range=$forcedHsRange"
-                    )
+                    val wantFps = opt.fpsRange.upper
+                    val hsPick =
+                        if (autoSelectBestHfrSize) pickMaxHsSizeForFps(chars, wantFps) else null
+                    if (hsPick != null) {
+                        activeSize = hsPick.first
+                        forcedHsRange = hsPick.second
+                        Log.d(
+                            TAG,
+                            "Auto HFR pick for ${wantFps}fps: ${activeSize!!.width}x${activeSize!!.height}, range=$forcedHsRange"
+                        )
+                    } else {
+                        activeSize = opt.size
+                        forcedHsRange = null
+                        Log.w(
+                            TAG,
+                            "No HS size advertises $wantFps fps; falling back to option size ${opt.size.width}x${opt.size.height}"
+                        )
+                    }
+                    dumpHighSpeedTable(chars)
                 } else {
                     activeSize = opt.size
-                    forcedHsRange = null
-                    Log.w(
-                        TAG,
-                        "No HS size advertises $wantFps fps; falling back to option size ${opt.size.width}x${opt.size.height}"
-                    )
                 }
-                dumpHighSpeedTable(chars)
-            } else {
-                activeSize = opt.size
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-
             currentEvDelta = 0
             targetFpsForBudget =
                 max(getSupportedHighSpeedRange(opt)?.upper ?: 0, opt.fpsRange.upper).coerceAtLeast(
@@ -365,14 +360,12 @@ class Camera2Controller(
 
                         mainHandler.post {
                             startSbs3dPreview(
-                                size = Size(1280, 720),
-                                fps = Range(30, 30),
                                 onReady = {
                                     ready = true
                                     logMode("SBS3D preview active at bind()")
                                 },
                                 onError = { err ->
-                                   // Toast.makeText(context,"OPIC 3D not supported", Toast.LENGTH_SHORT).show()
+                                    // Toast.makeText(context,"OPIC 3D not supported", Toast.LENGTH_SHORT).show()
                                     Log.e(TAG, "SBS3D preview failed: ${err.message}", err)
                                 }
                             )
@@ -471,13 +464,25 @@ class Camera2Controller(
         val previewSurface = findPreviewSurface()
         if (previewSurface == null) return onError(IllegalStateException("Preview surface not ready"))
 
-        // Create compositor with previewSurface only (no recorder yet)
+        // ✅ Force landscape buffer for preview EGL surface
+        val landscapeW = size.width * 2
+        val landscapeH = size.height
+        val outW = (sbsSize.width * 2 / 2) * 2
+        val outH = (sbsSize.height / 2) * 2
+
+// Create an offscreen buffer for horizontal SBS rendering
+        val eglOffscreen = SurfaceTexture(999).apply {
+            setDefaultBufferSize(landscapeW, landscapeH)
+        }
+        val eglSurface = Surface(eglOffscreen)
+
+// ✅ Render horizontally to eglSurface and mirror to PreviewView
         sbsComposer = SbsGlComposer(
-            outW = size.width * 2,  // horizontal side-by-side
-            outH = size.height,
-            outSurface = previewSurface,
+            outW = landscapeW,
+            outH = landscapeH,
+            outSurface = eglSurface,      // EGL surface for correct SBS geometry
             eyeSize = size,
-            previewSurface = previewSurface
+            previewSurface = previewSurface   // still show live preview
         )
 
         sbsLeftSurface = sbsComposer!!.leftSurface
@@ -1707,30 +1712,7 @@ class Camera2Controller(
         sessionTargets.clear()
         sessionHasRecorder = false
 
-        // [SBS] release composer if any
-        sbsComposer?.release()
-        sbsComposer = null
-        sbsLeftSurface = null
-        sbsRightSurface = null
-
-        // [SBS] close dual devices if used
-        try {
-            sbsLeftSession?.close()
-        } catch (_: Throwable) {
-        }; sbsLeftSession = null
-        try {
-            sbsRightSession?.close()
-        } catch (_: Throwable) {
-        }; sbsRightSession = null
-        try {
-            sbsLeftDev?.close()
-        } catch (_: Throwable) {
-        }; sbsLeftDev = null
-        try {
-            sbsRightDev?.close()
-        } catch (_: Throwable) {
-        }; sbsRightDev = null
-
+        releaseSbs()
         stop()
     }
 
@@ -1748,7 +1730,6 @@ class Camera2Controller(
     private var sbsLogicalId: String? = null
     private var sbsLeftPhysicalId: String? = null
     private var sbsRightPhysicalId: String? = null
-    private var sbsSize: Size = Size(1280, 720)
     private var sbsFps: Range<Int> = Range(30, 30)
     private var sbsUsingLogical: Boolean = true
 
@@ -1842,8 +1823,6 @@ class Camera2Controller(
     fun start3DRecordingSbs(
         leftCameraId: String? = null,
         rightCameraId: String? = null,
-        size: Size = Size(1280, 720),
-        fps: Range<Int> = Range(30, 30),
         onStarted: () -> Unit,
         onSaved: (Uri) -> Unit,
         onError: (Throwable) -> Unit
@@ -1860,8 +1839,8 @@ class Camera2Controller(
 
         // Prepare recorder for double width (full-SBS)
         val file = createOutputFile(context, "SBS3D_Video", ".mp4")
-        val outW = (size.width * 2 / 2) * 2
-        val outH = (size.height / 2) * 2
+        val outW = (sbsSize.width * 2 / 2) * 2
+        val outH = (sbsSize.height / 2) * 2
 
         mediaRecorder = MediaRecorder().apply {
             setAudioSource(MediaRecorder.AudioSource.CAMCORDER)
@@ -1874,12 +1853,12 @@ class Camera2Controller(
             setOutputFile(file.absolutePath)
             val usingHevc =
                 trySetHevc(this).also { if (!it) setVideoEncoder(MediaRecorder.VideoEncoder.H264) }
-            setVideoFrameRate(fps.upper)
+            setVideoFrameRate(sbsFps.upper)
             setVideoSize(outW, outH)
             val targetBitrate = computeTargetBitrate(
                 outW,
                 outH,
-                fps.upper,
+                sbsFps.upper,
                 usingHevc = usingHevc,
                 pipe = Pipeline.SBS3D
             )
@@ -1894,27 +1873,11 @@ class Camera2Controller(
             // Extract PreviewView surface for live on-screen SBS display
             val previewSurface = findPreviewSurface()
             sbsPreviewSurface = previewSurface
-
-            sbsComposer = SbsGlComposer(
-                outW, outH,
-                recorderSurface!!,
-                size,
-                previewSurface
-            )
-
+            sbsComposer?.switchOutputSurface(recorderSurface!!)
             // after sbsComposer creation
             val monitorTex = SurfaceTexture(101).apply {
-                setDefaultBufferSize(size.width, size.height)
+                setDefaultBufferSize(sbsSize.width, sbsSize.height)
             }
-            val monitorSurface = Surface(monitorTex)
-
-// attach the same left physical camera feed to both surfaces
-            val outLeft = OutputConfiguration(sbsComposer!!.leftSurface).apply {
-                setPhysicalCameraId(sbsLeftPhysicalId)
-            }
-            val outPreview =
-                OutputConfiguration(monitorSurface).apply { setPhysicalCameraId(sbsLeftPhysicalId) }
-
             sbsLeftSurface = sbsComposer!!.leftSurface
             sbsRightSurface = sbsComposer!!.rightSurface
         } catch (t: Throwable) {
@@ -1931,9 +1894,6 @@ class Camera2Controller(
             val rightId = rightCameraId ?: physicals.firstOrNull { it != leftId } ?: run {
                 onError(IllegalStateException("No second physical camera found under logical $logicalId")); return
             }
-            // Switch to SBS pipeline and start
-            sbsSize = size
-            sbsFps = fps
             sbsLogicalId = logicalId
             sbsLeftPhysicalId = leftId
             sbsRightPhysicalId = rightId
@@ -1970,11 +1930,8 @@ class Camera2Controller(
             if (pair != null) {
                 sbsUsingLogical = false
                 val (leftId, rightId) = pair
-                sbsSize = size
-                sbsFps = fps
-
                 openConcurrentDualSessions(
-                    leftId, rightId, size, fps,
+                    leftId, rightId, sbsSize, sbsFps,
                     onStarted = {
                         pipeline = Pipeline.SBS3D
                         isRecording = true
@@ -2190,22 +2147,6 @@ class Camera2Controller(
             onError(IllegalStateException("Not in SBS3D mode")); return
         }
 
-        // Stop repeating on whichever path was used
-        if (sbsUsingLogical) {
-            try {
-                sbsSession?.stopRepeating()
-            } catch (_: Throwable) {
-            }
-        } else {
-            try {
-                sbsLeftSession?.stopRepeating()
-            } catch (_: Throwable) {
-            }
-            try {
-                sbsRightSession?.stopRepeating()
-            } catch (_: Throwable) {
-            }
-        }
 
         var err: Throwable? = null
         try {
@@ -2224,7 +2165,43 @@ class Camera2Controller(
         } catch (_: Exception) {
         }
         mediaRecorder = null
+        val recorded = outputFile
+        recorderSurface = null
 
+        pipeline = Pipeline.STD60 // back to normal after SBS
+
+        if (err != null) {
+            onError(err!!); return
+        }
+        if (recorded == null || !recorded.exists()) {
+            onError(IllegalStateException("No output file")); return
+        }
+
+        MediaScannerConnection.scanFile(
+            context,
+            arrayOf(recorded.absolutePath),
+            arrayOf("video/mp4"),
+            null
+        )
+        onSaved(Uri.fromFile(recorded))
+    }
+    fun releaseSbs(){
+        // Stop repeating on whichever path was used
+        if (sbsUsingLogical) {
+            try {
+                sbsSession?.stopRepeating()
+            } catch (_: Throwable) {
+            }
+        } else {
+            try {
+                sbsLeftSession?.stopRepeating()
+            } catch (_: Throwable) {
+            }
+            try {
+                sbsRightSession?.stopRepeating()
+            } catch (_: Throwable) {
+            }
+        }
         // Tear down GL compositor
         sbsComposer?.stop()
         sbsComposer?.release()
@@ -2232,8 +2209,7 @@ class Camera2Controller(
         sbsLeftSurface = null
         sbsRightSurface = null
 
-        val recorded = outputFile
-        recorderSurface = null
+
 
         // close sessions & devices
         if (sbsUsingLogical) {
@@ -2268,380 +2244,6 @@ class Camera2Controller(
             sbsLeftDev = null; sbsRightDev = null
         }
 
-        pipeline = Pipeline.STD60 // back to normal after SBS
-
-        if (err != null) {
-            onError(err!!); return
-        }
-        if (recorded == null || !recorded.exists()) {
-            onError(IllegalStateException("No output file")); return
-        }
-
-        MediaScannerConnection.scanFile(
-            context,
-            arrayOf(recorded.absolutePath),
-            arrayOf("video/mp4"),
-            null
-        )
-        onSaved(Uri.fromFile(recorded))
-    }
-
-    // ========= GL compositor (fixed threading) =========
-    private class SbsGlComposer(
-        private val outW: Int,
-        private val outH: Int,
-        private val outSurface: Surface,
-        private val eyeSize: Size,
-        private val previewSurface: Surface? = null
-    ) {
-        // EGL/GLES
-        private var eglDisplay: EGLDisplay? = null
-        private var eglContext: EGLContext? = null
-        private var eglSurface: EGLSurface? = null
-        private var eglConfig: EGLConfig? = null
-
-        private var prog: Int = 0
-        private var posLoc = 0
-        private var texLoc = 0
-        private var samplerLoc = 0
-
-        // OES textures + SurfaceTextures
-        private var leftTex = 0
-        private var rightTex = 0
-        private var leftSt: SurfaceTexture? = null
-        private var rightSt: SurfaceTexture? = null
-        lateinit var leftSurface: Surface; private set
-        lateinit var rightSurface: Surface; private set
-        private var previewEglSurface: EGLSurface? = null
-
-        private val thread = HandlerThread("SbsComposer")
-        private lateinit var handler: Handler
-        @Volatile
-        private var running = false
-        @Volatile
-        private var initialized = false
-        @Volatile
-        private var released = false
-
-        @Volatile
-        private var leftHasNew = false
-        @Volatile
-        private var rightHasNew = false
-
-        private fun ensureCurrent() {
-            if (released) return
-            val curDisplay = EGL14.eglGetCurrentDisplay()
-            val curContext = EGL14.eglGetCurrentContext()
-            if (curDisplay != eglDisplay || curContext != eglContext) {
-                EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)
-            }
-        }
-
-        init {
-            thread.start()
-            handler = Handler(thread.looper)
-
-            val latch = CountDownLatch(1)
-            handler.post {
-                try {
-                    initGlOnThisThread()
-                    initialized = true
-                } finally {
-                    latch.countDown()
-                }
-            }
-            latch.await(1500, TimeUnit.MILLISECONDS)
-            if (!initialized) throw RuntimeException("SBS GL init timeout")
-        }
-
-        private fun initGlOnThisThread() {
-            eglDisplay = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
-            val vers = IntArray(2)
-            EGL14.eglInitialize(eglDisplay, vers, 0, vers, 1)
-
-            val attribList = intArrayOf(
-                EGL14.EGL_RED_SIZE, 8,
-                EGL14.EGL_GREEN_SIZE, 8,
-                EGL14.EGL_BLUE_SIZE, 8,
-                EGL14.EGL_ALPHA_SIZE, 8,
-                EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT,
-                EGL14.EGL_NONE
-            )
-            val configs = arrayOfNulls<EGLConfig>(1)
-            val numConfigs = IntArray(1)
-            EGL14.eglChooseConfig(eglDisplay, attribList, 0, configs, 0, 1, numConfigs, 0)
-            eglConfig = configs[0]
-
-            val attribCtx = intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE)
-            eglContext =
-                EGL14.eglCreateContext(eglDisplay, eglConfig, EGL14.EGL_NO_CONTEXT, attribCtx, 0)
-            eglSurface = EGL14.eglCreateWindowSurface(
-                eglDisplay,
-                eglConfig,
-                outSurface,
-                intArrayOf(EGL14.EGL_NONE),
-                0
-            )
-            // optional second EGL surface for on-screen preview
-            previewEglSurface = previewSurface?.let {
-                EGL14.eglCreateWindowSurface(
-                    eglDisplay,
-                    eglConfig,
-                    it,
-                    intArrayOf(EGL14.EGL_NONE),
-                    0
-                )
-            }
-
-
-            EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)
-
-            fun compile(type: Int, src: String): Int {
-                val s = GLES20.glCreateShader(type)
-                GLES20.glShaderSource(s, src); GLES20.glCompileShader(s)
-                val ok = IntArray(1); GLES20.glGetShaderiv(s, GLES20.GL_COMPILE_STATUS, ok, 0)
-                if (ok[0] == 0) {
-                    val log = GLES20.glGetShaderInfoLog(s)
-                    GLES20.glDeleteShader(s); throw RuntimeException("shader compile fail: $log")
-                }
-                return s
-            }
-
-            val vsh = """
-                attribute vec4 aPos;
-                attribute vec2 aTex;
-                varying vec2 vTex;
-                void main() { gl_Position = aPos; vTex = aTex; }
-            """.trimIndent()
-            val fsh = """
-                #extension GL_OES_EGL_image_external : require
-                precision mediump float;
-                uniform samplerExternalOES uTex;
-                varying vec2 vTex;
-                void main() { gl_FragColor = texture2D(uTex, vTex); }
-            """.trimIndent()
-
-            prog = GLES20.glCreateProgram()
-            GLES20.glAttachShader(prog, compile(GLES20.GL_VERTEX_SHADER, vsh))
-            GLES20.glAttachShader(prog, compile(GLES20.GL_FRAGMENT_SHADER, fsh))
-            GLES20.glLinkProgram(prog)
-            val link = IntArray(1); GLES20.glGetProgramiv(prog, GLES20.GL_LINK_STATUS, link, 0)
-            if (link[0] == 0) throw RuntimeException(
-                "program link fail: ${
-                    GLES20.glGetProgramInfoLog(
-                        prog
-                    )
-                }"
-            )
-            posLoc = GLES20.glGetAttribLocation(prog, "aPos")
-            texLoc = GLES20.glGetAttribLocation(prog, "aTex")
-            samplerLoc = GLES20.glGetUniformLocation(prog, "uTex")
-
-            fun makeOesTex(): Int {
-                val tex = IntArray(1)
-                GLES20.glGenTextures(1, tex, 0)
-                GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, tex[0])
-                GLES20.glTexParameteri(
-                    GLES11Ext.GL_TEXTURE_EXTERNAL_OES,
-                    GLES20.GL_TEXTURE_MIN_FILTER,
-                    GLES20.GL_LINEAR
-                )
-                GLES20.glTexParameteri(
-                    GLES11Ext.GL_TEXTURE_EXTERNAL_OES,
-                    GLES20.GL_TEXTURE_MAG_FILTER,
-                    GLES20.GL_LINEAR
-                )
-                GLES20.glTexParameteri(
-                    GLES11Ext.GL_TEXTURE_EXTERNAL_OES,
-                    GLES20.GL_TEXTURE_WRAP_S,
-                    GLES20.GL_CLAMP_TO_EDGE
-                )
-                GLES20.glTexParameteri(
-                    GLES11Ext.GL_TEXTURE_EXTERNAL_OES,
-                    GLES20.GL_TEXTURE_WRAP_T,
-                    GLES20.GL_CLAMP_TO_EDGE
-                )
-                return tex[0]
-            }
-            leftTex = makeOesTex()
-            rightTex = makeOesTex()
-
-            leftSt = SurfaceTexture(leftTex).apply {
-                setDefaultBufferSize(
-                    eyeSize.width,
-                    eyeSize.height
-                )
-            }
-            rightSt = SurfaceTexture(rightTex).apply {
-                setDefaultBufferSize(
-                    eyeSize.width,
-                    eyeSize.height
-                )
-            }
-            leftSurface = Surface(leftSt)
-            rightSurface = Surface(rightSt)
-
-            leftSt!!.setOnFrameAvailableListener({ leftHasNew = true; requestRender() }, handler)
-            rightSt!!.setOnFrameAvailableListener({ rightHasNew = true; requestRender() }, handler)
-        }
-
-        fun start() {
-            running = true
-        }
-
-        fun stop() {
-            running = false
-        }
-
-        private fun requestRender() {
-            if (!running || released) return
-            handler.post {
-                if (!running || released) return@post
-                try {
-                    ensureCurrent()
-                    if (leftHasNew) {
-                        leftSt?.updateTexImage(); leftHasNew = false
-                    }
-                    if (rightHasNew) {
-                        rightSt?.updateTexImage(); rightHasNew = false
-                    }
-                    draw()
-                } catch (t: Throwable) {
-                    Log.w("SbsGlComposer", "render/drop: ${t.message}")
-                }
-            }
-        }
-
-        private fun draw() {
-            ensureCurrent()
-            GLES20.glViewport(0, 0, outW, outH)
-            GLES20.glClearColor(0f, 0f, 0f, 1f)
-            GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
-            GLES20.glUseProgram(prog)
-
-            // Left eye fills left half, right eye fills right half (landscape horizontal split)
-            val leftQuad = floatArrayOf(
-                -1f, -1f, 0f, 1f,    // bottom-left corner
-                0f, -1f, 1f, 1f,    // bottom-center
-                -1f, 1f, 0f, 0f,    // top-left
-                0f, 1f, 1f, 0f     // top-center
-            )
-            val rightQuad = floatArrayOf(
-                0f, -1f, 0f, 1f,    // bottom-center
-                1f, -1f, 1f, 1f,    // bottom-right
-                0f, 1f, 0f, 0f,    // top-center
-                1f, 1f, 1f, 0f     // top-right
-            )
-
-            fun drawHalf(texId: Int, quad: FloatArray) {
-                val vb = java.nio.ByteBuffer.allocateDirect(quad.size * 4)
-                    .order(java.nio.ByteOrder.nativeOrder()).asFloatBuffer()
-                vb.put(quad).position(0)
-                GLES20.glEnableVertexAttribArray(posLoc)
-                GLES20.glVertexAttribPointer(posLoc, 2, GLES20.GL_FLOAT, false, 16, vb)
-                vb.position(2)
-                GLES20.glEnableVertexAttribArray(texLoc)
-                GLES20.glVertexAttribPointer(texLoc, 2, GLES20.GL_FLOAT, false, 16, vb)
-                GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-                GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, texId)
-                GLES20.glUniform1i(samplerLoc, 0)
-                GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
-            }
-
-            drawHalf(leftTex, leftQuad)
-            drawHalf(rightTex, rightQuad)
-            // Swap to recorder surface
-            if (eglSurface != null && eglSurface != EGL14.EGL_NO_SURFACE) {
-                EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)
-                GLES20.glViewport(0, 0, outW, outH)
-                GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
-                GLES20.glUseProgram(prog)
-                drawHalf(leftTex, leftQuad)
-                drawHalf(rightTex, rightQuad)
-                EGL14.eglSwapBuffers(eglDisplay, eglSurface)
-            }
-
-// Also mirror to preview surface if available
-            if (previewEglSurface != null && previewEglSurface != EGL14.EGL_NO_SURFACE) {
-                EGL14.eglMakeCurrent(eglDisplay, previewEglSurface, previewEglSurface, eglContext)
-                GLES20.glViewport(0, 0, outW, outH)
-                GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
-                GLES20.glUseProgram(prog)
-                drawHalf(leftTex, leftQuad)
-                drawHalf(rightTex, rightQuad)
-                EGL14.eglSwapBuffers(eglDisplay, previewEglSurface)
-            }
-
-// Return EGL context to encoder surface so frame flow continues
-            EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)
-
-
-        }
-
-        fun release() {
-            if (released) return
-            released = true
-            stop()
-            if (previewEglSurface != null && previewEglSurface != EGL14.EGL_NO_SURFACE) {
-                EGL14.eglDestroySurface(eglDisplay, previewEglSurface)
-                previewEglSurface = null
-            }
-            val latch = CountDownLatch(1)
-            handler.post {
-                try {
-                    try {
-                        leftSt?.setOnFrameAvailableListener(null)
-                    } catch (_: Throwable) {
-                    }
-                    try {
-                        rightSt?.setOnFrameAvailableListener(null)
-                    } catch (_: Throwable) {
-                    }
-                    try {
-                        leftSurface.release()
-                    } catch (_: Throwable) {
-                    }
-                    try {
-                        rightSurface.release()
-                    } catch (_: Throwable) {
-                    }
-                    try {
-                        leftSt?.release()
-                    } catch (_: Throwable) {
-                    }
-                    try {
-                        rightSt?.release()
-                    } catch (_: Throwable) {
-                    }
-
-                    try {
-                        EGL14.eglMakeCurrent(
-                            eglDisplay,
-                            EGL14.EGL_NO_SURFACE,
-                            EGL14.EGL_NO_SURFACE,
-                            EGL14.EGL_NO_CONTEXT
-                        )
-                        if (eglSurface != null && eglSurface != EGL14.EGL_NO_SURFACE) {
-                            EGL14.eglDestroySurface(eglDisplay, eglSurface)
-                        }
-                        if (eglContext != null && eglContext != EGL14.EGL_NO_CONTEXT) {
-                            EGL14.eglDestroyContext(eglDisplay, eglContext)
-                        }
-                        if (eglDisplay != null && eglDisplay != EGL14.EGL_NO_DISPLAY) {
-                            EGL14.eglTerminate(eglDisplay)
-                        }
-                    } catch (_: Throwable) {
-                    }
-                } finally {
-                    latch.countDown()
-                }
-            }
-            latch.await(1000, TimeUnit.MILLISECONDS)
-            try {
-                thread.quitSafely()
-            } catch (_: Throwable) {
-            }
-        }
     }
 
     // ADD: convert Image (JPEG) → ByteArray
@@ -2664,7 +2266,6 @@ class Camera2Controller(
     @RequiresPermission(Manifest.permission.CAMERA)
     fun capture3DPhotoSbs(
         context: Context,
-        size: Size = Size(1920, 1080),
         jpegQuality: Int = 92,
         onSaved: (Uri) -> Unit,
         onError: (Throwable) -> Unit
@@ -2674,12 +2275,14 @@ class Camera2Controller(
             ?: return onError(IllegalStateException("No logical back camera with 2 physicals found"))
 
         val (logicalId, physicals) = logical
-        val leftId = physicals.firstOrNull() ?: return onError(IllegalStateException("Missing left camera"))
-        val rightId = physicals.getOrNull(1) ?: return onError(IllegalStateException("Missing right camera"))
+        val leftId =
+            physicals.firstOrNull() ?: return onError(IllegalStateException("Missing left camera"))
+        val rightId =
+            physicals.getOrNull(1) ?: return onError(IllegalStateException("Missing right camera"))
 
         // Prepare two JPEG readers
-        val leftReader = ImageReader.newInstance(size.width, size.height, ImageFormat.JPEG, 2)
-        val rightReader = ImageReader.newInstance(size.width, size.height, ImageFormat.JPEG, 2)
+        val leftReader = ImageReader.newInstance(sbsSize.width, sbsSize.height, ImageFormat.JPEG, 2)
+        val rightReader = ImageReader.newInstance(sbsSize.width, sbsSize.height, ImageFormat.JPEG, 2)
 
         val leftSurface = leftReader.surface
         val rightSurface = rightReader.surface
@@ -2689,7 +2292,11 @@ class Camera2Controller(
         val leftBytes = AtomicReference<ByteArray>()
         val rightBytes = AtomicReference<ByteArray>()
 
-        fun acquireImageBytes(reader: ImageReader, target: AtomicReference<ByteArray>, latch: CountDownLatch) {
+        fun acquireImageBytes(
+            reader: ImageReader,
+            target: AtomicReference<ByteArray>,
+            latch: CountDownLatch
+        ) {
             reader.acquireLatestImage()?.use { img ->
                 val buf = img.planes[0].buffer
                 val data = ByteArray(buf.remaining())
@@ -2699,15 +2306,29 @@ class Camera2Controller(
             latch.countDown()
         }
 
-        leftReader.setOnImageAvailableListener({ acquireImageBytes(leftReader, leftBytes, leftLatch) }, camHandler)
-        rightReader.setOnImageAvailableListener({ acquireImageBytes(rightReader, rightBytes, rightLatch) }, camHandler)
+        leftReader.setOnImageAvailableListener({
+            acquireImageBytes(
+                leftReader,
+                leftBytes,
+                leftLatch
+            )
+        }, camHandler)
+        rightReader.setOnImageAvailableListener({
+            acquireImageBytes(
+                rightReader,
+                rightBytes,
+                rightLatch
+            )
+        }, camHandler)
 
         // Camera device callback
         val stateCb = object : CameraDevice.StateCallback() {
             override fun onOpened(device: CameraDevice) {
                 try {
-                    val outLeft = OutputConfiguration(leftSurface).apply { setPhysicalCameraId(leftId) }
-                    val outRight = OutputConfiguration(rightSurface).apply { setPhysicalCameraId(rightId) }
+                    val outLeft =
+                        OutputConfiguration(leftSurface).apply { setPhysicalCameraId(leftId) }
+                    val outRight =
+                        OutputConfiguration(rightSurface).apply { setPhysicalCameraId(rightId) }
 
                     val sessionCfg = SessionConfiguration(
                         SessionConfiguration.SESSION_REGULAR,
@@ -2716,13 +2337,24 @@ class Camera2Controller(
                         object : CameraCaptureSession.StateCallback() {
                             override fun onConfigured(session: CameraCaptureSession) {
                                 try {
-                                    val req = device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
-                                        addTarget(leftSurface)
-                                        addTarget(rightSurface)
-                                        set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
-                                        set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
-                                        set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
-                                    }
+                                    val req =
+                                        device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)
+                                            .apply {
+                                                addTarget(leftSurface)
+                                                addTarget(rightSurface)
+                                                set(
+                                                    CaptureRequest.CONTROL_MODE,
+                                                    CaptureRequest.CONTROL_MODE_AUTO
+                                                )
+                                                set(
+                                                    CaptureRequest.CONTROL_AE_MODE,
+                                                    CaptureRequest.CONTROL_AE_MODE_ON
+                                                )
+                                                set(
+                                                    CaptureRequest.CONTROL_AWB_MODE,
+                                                    CaptureRequest.CONTROL_AWB_MODE_AUTO
+                                                )
+                                            }
                                     session.capture(req.build(), null, camHandler)
                                 } catch (t: Throwable) {
                                     onError(t)
@@ -2776,8 +2408,14 @@ class Camera2Controller(
                 }
 
                 // ✅ Save using your createOutputFile()
-                val file = createOutputFile(context,"SBS3D_Photo", ".jpg")
-                FileOutputStream(file).use { combined.compress(Bitmap.CompressFormat.JPEG, jpegQuality, it) }
+                val file = createOutputFile(context, "SBS3D_Photo", ".jpg")
+                FileOutputStream(file).use {
+                    combined.compress(
+                        Bitmap.CompressFormat.JPEG,
+                        jpegQuality,
+                        it
+                    )
+                }
 
                 // Register in gallery
                 MediaScannerConnection.scanFile(
@@ -2792,8 +2430,14 @@ class Camera2Controller(
             } finally {
                 // Cleanup
                 (camHandler ?: mainHandler).post {
-                    try { leftReader.close() } catch (_: Throwable) {}
-                    try { rightReader.close() } catch (_: Throwable) {}
+                    try {
+                        leftReader.close()
+                    } catch (_: Throwable) {
+                    }
+                    try {
+                        rightReader.close()
+                    } catch (_: Throwable) {
+                    }
                 }
             }
         }.start()
@@ -2802,7 +2446,8 @@ class Camera2Controller(
     // ===================================================
 // Safe camera open helper (prevents Pixel8 open crash)
 // ===================================================
-    @Volatile private var cameraOpening = false
+    @Volatile
+    private var cameraOpening = false
 
     @RequiresPermission(Manifest.permission.CAMERA)
     private fun safeOpenCamera(id: String, cb: CameraDevice.StateCallback) {
