@@ -43,6 +43,7 @@ import androidx.annotation.RequiresApi
 import androidx.annotation.RequiresPermission
 import androidx.camera.view.PreviewView
 import androidx.core.animation.addListener
+import com.opic3d.Spatial.trendingvideos.controllers.Camera2Controller.Pipeline.*
 import com.opic3d.Spatial.trendingvideos.controllers.gl.SbsGlComposer
 import com.opic3d.Spatial.trendingvideos.helper.retieToFixedFps
 import com.opic3d.Spatial.trendingvideos.model.SlowMoOption
@@ -942,83 +943,62 @@ class Camera2Controller(
         onSaved: (Uri) -> Unit,
         onError: (Throwable) -> Unit
     ) {
-        if (pipeline == Pipeline.SBS3D) return onError(IllegalStateException("Use start3DRecordingSbs for SBS"))
-
         val dev = cameraDevice ?: return onError(IllegalStateException("Camera not ready"))
-        val file = createOutputFile(context, "SBS3D_Video", ".mp4")
+        val file = createOutputFile(context, "Slowmo", ".mp4")
 
         val recordFps = when (pipeline) {
-            Pipeline.HFR -> (forcedHsRange?.upper ?: getCurrentAeFpsRange()?.upper)
-                ?: desiredFixedFps()
-
-            Pipeline.STD60 -> pickStd60FpsRange()?.upper ?: 60
-            Pipeline.VERY_DARK -> 60
-            Pipeline.TIMELAPSE -> 60
-            Pipeline.SBS3D -> 60
+            HFR -> (forcedHsRange?.upper ?: getCurrentAeFpsRange()?.upper) ?: desiredFixedFps()
+            STD60 -> pickStd60FpsRange()?.upper ?: 60
+            VERY_DARK -> 60
+            TIMELAPSE -> 60 // shouldn't hit here; TL has its own API
+            SBS3D -> 60
         }
         lastRecordFps = recordFps
         mediaRecorder = MediaRecorder().apply {
             setAudioSource(MediaRecorder.AudioSource.CAMCORDER)
             setVideoSource(MediaRecorder.VideoSource.SURFACE)
             setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+
             setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
             setAudioSamplingRate(48_000)
             setAudioEncodingBitRate(128_000)
             setAudioChannels(2)
+
             setOutputFile(file.absolutePath)
-            val usingHevc =
-                if (useHevcIfAvailable && pipeline != Pipeline.VERY_DARK) trySetHevc(this) else false
+
+            val usingHevc = if (useHevcIfAvailable && pipeline != Pipeline.VERY_DARK) trySetHevc(this) else false
             if (!usingHevc) setVideoEncoder(MediaRecorder.VideoEncoder.H264)
+
             setVideoFrameRate(recordFps)
+
             val sz = currentSize()
             val encW = (sz.width / 2) * 2
             val encH = (sz.height / 2) * 2
             setVideoSize(encW, encH)
+
             val targetBitrate = computeTargetBitrate(encW, encH, recordFps, usingHevc, pipeline)
             setVideoEncodingBitRate(targetBitrate)
+
             prepare()
-            Log.d(
-                TAG,
-                "Recorder pipe=$pipeline size=${encW}x${encH} fps=$recordFps vbitrate=$targetBitrate codec=${if (usingHevc) "HEVC" else "H264"}"
-            )
+            Log.d(TAG, "Recorder pipe=$pipeline size=${encW}x${encH} fps=$recordFps vbitrate=$targetBitrate codec=${if (usingHevc) "HEVC" else "H264"}")
         }
 
         recorderSurface = mediaRecorder!!.surface
-
-// 🔹 Create a mirror texture for live preview (fix preview freeze)
-        mirrorTexture = SurfaceTexture(66).apply {
-            setDefaultBufferSize(currentSize().width, currentSize().height)
-        }
-        mirrorSurface = Surface(mirrorTexture)
-
         isRecording = true
-        useTemplateRecordForPreview = true
 
-// 🔹 Explicitly rebuild session with TEMPLATE_RECORD and both surfaces
+        // Rebuild a session that INCLUDES the recorder surface
         rebuildSession(withRecorder = true) { e -> onError(e); return@rebuildSession }
-        camHandler?.postDelayed({
-            try {
-                val dev = cameraDevice ?: return@postDelayed
-                val req = dev.createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
-                    previewSurface?.let { addTarget(it) }
-                    recorderSurface?.let { addTarget(it) }
-                    set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO)
-                }
-                captureSession?.setRepeatingRequest(req.build(), captureCallback, camHandler)
-                Log.d(TAG, "Recording request set → preview+recorder active")
-            } catch (t: Throwable) {
-                Log.e(TAG, "recording request reapply failed", t)
-            }
-        }, 300)
 
         try {
-            mediaRecorder?.start(); onStarted()
+            mediaRecorder?.start()
+            onStarted()
         } catch (e: Exception) {
             onError(e)
         }
         outputFile = file
     }
 
+    /** Stop + retime to exact playback fps (30) — no re-encode; audio scaled to match video; replaces source file */
     fun stopRecordingWithPlaybackFps(
         keepAudio: Boolean,
         onSaved: (Uri) -> Unit,
@@ -1027,77 +1007,13 @@ class Camera2Controller(
         val desiredFps = if (lastRecordFps == 60) 15 else 30
         finishRecorder(
             makeOutput = { srcFile ->
-                retieToFixedFps(
-                    src = srcFile,
-                    targetFps = desiredFps,
-                    keepAudio = keepAudio
-                )
+                retieToFixedFps(src = srcFile, targetFps = desiredFps, keepAudio = keepAudio)
             },
             onSaved = onSaved,
             onError = onError
         )
     }
 
-    // ---- TIME-LAPSE ----
-    fun startTimeLapse(
-        captureFps: Double = 2.0,
-        playbackFps: Int = 30,
-        onStarted: () -> Unit,
-        onError: (Throwable) -> Unit
-    ) {
-        if (pipeline == Pipeline.SBS3D) return onError(IllegalStateException("Stop SBS before timelapse"))
-        val dev = cameraDevice ?: return onError(IllegalStateException("Camera not ready"))
-        if (captureFps <= 0.0 || playbackFps <= 0) return onError(IllegalArgumentException("Invalid fps"))
-        timelapseCaptureFps = captureFps.coerceIn(0.5, playbackFps.toDouble())
-        timelapsePlaybackFps = playbackFps
-        if (pipeline == Pipeline.HFR) smoothSwitchTo(Pipeline.STD60, withRecorder = false)
-        pipeline = Pipeline.TIMELAPSE
-
-        val file = createOutputFile(context, "TimeLapse", ".mp4")
-        lastRecordFps = playbackFps
-
-        mediaRecorder = MediaRecorder().apply {
-            setAudioSource(MediaRecorder.AudioSource.CAMCORDER)
-            setVideoSource(MediaRecorder.VideoSource.SURFACE)
-            setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-            setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-            setAudioSamplingRate(48_000)
-            setAudioEncodingBitRate(128_000)
-            setAudioChannels(2)
-            setOutputFile(file.absolutePath)
-
-            val usingHevc =
-                trySetHevc(this); if (!usingHevc) setVideoEncoder(MediaRecorder.VideoEncoder.H264)
-            setVideoFrameRate(timelapsePlaybackFps)
-            try {
-                setCaptureRate(timelapseCaptureFps)
-            } catch (e: Throwable) {
-                Log.w(TAG, "setCaptureRate not supported; continuing without native TL", e)
-            }
-            val sz = currentSize()
-            val encW = (sz.width / 2) * 2
-            val encH = (sz.height / 2) * 2
-            setVideoSize(encW, encH)
-            val targetBitrate =
-                computeTargetBitrate(encW, encH, timelapsePlaybackFps, usingHevc, Pipeline.STD60)
-            setVideoEncodingBitRate(targetBitrate)
-            prepare()
-            Log.d(
-                TAG,
-                "Recorder TL size=${encW}x${encH} capture=${"%.3f".format(timelapseCaptureFps)} play=$timelapsePlaybackFps"
-            )
-        }
-
-        recorderSurface = mediaRecorder!!.surface
-        isRecording = true
-        rebuildSession(withRecorder = true) { e -> onError(e); return@rebuildSession }
-        try {
-            mediaRecorder?.start(); onStarted()
-        } catch (e: Exception) {
-            onError(e)
-        }
-        outputFile = file
-    }
 
     // Shared stop logic
     private fun finishRecorder(
