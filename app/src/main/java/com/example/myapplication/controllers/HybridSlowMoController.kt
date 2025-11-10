@@ -7,6 +7,7 @@ import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.net.Uri
 import android.os.Build
+import android.util.Log
 import android.util.Range
 import android.util.Size
 import android.widget.ImageView
@@ -76,6 +77,7 @@ class HybridSlowMoController(
     /** Bind Camera2 for slow-mo using the provided option (cameraId, size, fpsRange, selector). */
     @RequiresPermission(Manifest.permission.CAMERA)
     fun bindSlowMo(option: SlowMoOption, onError: (Throwable) -> Unit = {}) {
+        Log.d("Hybrid", "bindSlowMo: $option")
         mode = Mode.SLOWMO
         slowMoOption = option
         camX.release()

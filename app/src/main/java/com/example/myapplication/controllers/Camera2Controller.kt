@@ -291,29 +291,37 @@ class Camera2Controller(
 
         manager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
         try {
-            manager?.cameraIdList?.forEachIndexed { i, id ->
-                Log.d(TAG, "Camera[$i] ID=$id")
-            }
             val camId = opt.cameraId
             if (camId.isBlank()) {
                 onError(IllegalArgumentException("bind(): SlowMoOption.cameraId is blank"))
                 return
             }
-            try {
-                val chars = manager?.getCameraCharacteristics(camId)
 
-                if (chars != null) {
-                    aeCompRange = chars.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE)
-                    activeArrayRect = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
-                    maxDigitalZoom =
-                        chars.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM) ?: 1f
-                    zoomLevel = zoomLevel.coerceIn(1f, maxDigitalZoom.coerceAtMost(5f))
+            val chars = manager?.getCameraCharacteristics(camId)
+            if (chars != null) {
+                aeCompRange = chars.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE)
+                activeArrayRect = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
+                maxDigitalZoom =
+                    chars.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM) ?: 1f
+                zoomLevel = zoomLevel.coerceIn(1f, maxDigitalZoom.coerceAtMost(5f))
 
-                    val apertures = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_APERTURES)
-                    if (apertures != null && apertures.isNotEmpty()) lensAperture =
-                        apertures.minOrNull() ?: apertures[0]
-                    Log.d(TAG, "Aperture set for EV100: f/$lensAperture")
+                val apertures = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_APERTURES)
+                if (apertures != null && apertures.isNotEmpty()) {
+                    lensAperture = apertures.minOrNull() ?: apertures[0]
+                }
+                Log.d(TAG, "Aperture set for EV100: f/$lensAperture")
 
+                // 🔹 Size selection:
+                //  - 3D: just use option.size (no HS table scanning)
+                //  - Slow-mo: keep auto HS size picker
+                if (isSbs3D) {
+                    activeSize = opt.size
+                    forcedHsRange = null
+                    Log.d(
+                        TAG,
+                        "3D preview: forcing STD size ${activeSize!!.width}x${activeSize!!.height}"
+                    )
+                } else {
                     val wantFps = opt.fpsRange.upper
                     val hsPick =
                         if (autoSelectBestHfrSize) pickMaxHsSizeForFps(chars, wantFps) else null
@@ -333,69 +341,70 @@ class Camera2Controller(
                         )
                     }
                     dumpHighSpeedTable(chars)
-                } else {
-                    activeSize = opt.size
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
+            } else {
+                activeSize = opt.size
             }
+
             currentEvDelta = 0
-            targetFpsForBudget =
-                max(getSupportedHighSpeedRange(opt)?.upper ?: 0, opt.fpsRange.upper).coerceAtLeast(
-                    60
-                )
+
+            // 🔹 Budget FPS:
+            //   - 3D: fixed 60 for preview
+            //   - Slow-mo: old logic
+            targetFpsForBudget = if (isSbs3D) {
+                60
+            } else {
+                max(getSupportedHighSpeedRange(opt)?.upper ?: 0, opt.fpsRange.upper).coerceAtLeast(60)
+            }
 
             previewSurface = waitForPreviewSurface(currentSize(), 1200)
                 ?: return onError(IllegalStateException("Preview surface not ready"))
 
             manager?.openCamera(opt.cameraId, object : CameraDevice.StateCallback() {
-                @RequiresApi(Build.VERSION_CODES.P)
                 override fun onOpened(device: CameraDevice) {
                     cameraDevice = device
                     logRecorderSizesOnce()
 
-                    // If SBS3D requested at bind, force pipeline to SBS and stop here:
+                    // 🔹 PREVIEW BEHAVIOR:
+                    //   - 3D: always STD60 preview (60 fps)
+                    //   - Slow-mo: HFR if supported, else STD60
                     if (isSbs3D) {
-                        pipeline = Pipeline.SBS3D
-                        ready = false
-
-                        mainHandler.post {
-                            startSbs3dPreview(
-                                onReady = {
-                                    ready = true
-                                    logMode("SBS3D preview active at bind()")
-                                },
-                                onError = { err ->
-                                    // Toast.makeText(context,"OPIC 3D not supported", Toast.LENGTH_SHORT).show()
-                                    Log.e(TAG, "SBS3D preview failed: ${err.message}", err)
-                                }
-                            )
-                        }
-                        return
-                    }
-
-
-                    if (getSupportedHighSpeedRange(opt) != null) {
-                        pipeline = Pipeline.HFR
-                        rebuildSession(withRecorder = false) { e ->
-                            Log.e(TAG, "HFR preview failed", e); onError(e)
-                        }
-                    } else {
                         pipeline = Pipeline.STD60
                         rebuildSession(withRecorder = false) { e ->
-                            Log.e(TAG, "STD preview failed", e); onError(e)
+                            Log.e(TAG, "3D STD60 preview failed", e)
+                            onError(e)
+                        }
+                    } else {
+                        if (getSupportedHighSpeedRange(opt) != null) {
+                            pipeline = Pipeline.HFR
+                            rebuildSession(withRecorder = false) { e ->
+                                Log.e(TAG, "HFR preview failed", e)
+                                onError(e)
+                            }
+                        } else {
+                            pipeline = Pipeline.STD60
+                            rebuildSession(withRecorder = false) { e ->
+                                Log.e(TAG, "STD preview failed", e)
+                                onError(e)
+                            }
                         }
                     }
+
                     logMode("onOpened")
+                    ready = true
                 }
 
                 override fun onDisconnected(device: CameraDevice) {
-                    device.close(); cameraDevice = null; ready = false
+                    device.close()
+                    cameraDevice = null
+                    ready = false
                 }
 
                 override fun onError(device: CameraDevice, error: Int) {
                     val why = explainCamError(error)
-                    device.close(); cameraDevice = null; ready = false
+                    device.close()
+                    cameraDevice = null
+                    ready = false
                     onError(RuntimeException("Camera2 error $error ($why)"))
                 }
 
@@ -407,6 +416,7 @@ class Camera2Controller(
             onError(e)
         }
     }
+
 
     // ===== FPS helpers bound to SlowMoOption =====
     private fun desiredFixedFps(): Int = option?.fpsRange?.upper ?: 120
@@ -1580,7 +1590,7 @@ class Camera2Controller(
     private var sbsLogicalId: String? = null
     private var sbsLeftPhysicalId: String? = null
     private var sbsRightPhysicalId: String? = null
-    private var sbsFps: Range<Int> = Range(30, 30)
+    private var sbsFps: Range<Int> = Range(60, 60)
     private var sbsUsingLogical: Boolean = true
 
     // concurrent fallback
@@ -1702,22 +1712,24 @@ class Camera2Controller(
         recorderSurface = mediaRecorder!!.surface
         outputFile = file
 
-        // Create GL compositor
+        // Create GL compositor ONLY for encoder output, leave PreviewView alone
         try {
-            // Extract PreviewView surface for live on-screen SBS display
-            val previewSurface = findPreviewSurface()
-            sbsPreviewSurface = previewSurface
-            sbsComposer?.switchOutputSurface(recorderSurface!!)
-            // after sbsComposer creation
-            val monitorTex = SurfaceTexture(101).apply {
-                setDefaultBufferSize(sbsSize.width, sbsSize.height)
-            }
+            sbsComposer = SbsGlComposer(
+                outW = outW,
+                outH = outH,
+                outSurface = recorderSurface!!,   // MP4 encoder input
+                eyeSize = sbsSize,
+                previewSurface = null            // 🔹 do NOT touch PreviewView
+            )
+
             sbsLeftSurface = sbsComposer!!.leftSurface
             sbsRightSurface = sbsComposer!!.rightSurface
+
         } catch (t: Throwable) {
             onError(RuntimeException("Failed to initialize SBS compositor: ${t.message}", t))
             return
         }
+
 
         // Try logical multi-camera first
         val logical = findLogicalBackWithTwoPhysicals(cm)
@@ -1732,12 +1744,14 @@ class Camera2Controller(
             sbsLeftPhysicalId = leftId
             sbsRightPhysicalId = rightId
 
-            // Close any mono device/session
+            // 🔹 Stop and close the mono preview session & device (was using opt.cameraId)
             try {
                 closeSessionSync()
-            } catch (_: Throwable) {
-            }
-            cameraDevice?.close(); cameraDevice = null
+            } catch (_: Throwable) { }
+            try {
+                cameraDevice?.close()
+            } catch (_: Throwable) { }
+            cameraDevice = null
 
             val stateCb = object : CameraDevice.StateCallback() {
                 override fun onOpened(device: CameraDevice) {
@@ -1757,6 +1771,7 @@ class Camera2Controller(
             manager?.openCamera(logicalId, stateCb, camHandler)
             return
         }
+
 
         // Fallback to concurrent dual-camera (API 29+)
         if (Build.VERSION.SDK_INT >= 29) {
@@ -1792,9 +1807,18 @@ class Camera2Controller(
         val leftIn = sbsLeftSurface ?: return onError(IllegalStateException("No left surface"))
         val rightIn = sbsRightSurface ?: return onError(IllegalStateException("No right surface"))
 
-        val outLeft = OutputConfiguration(leftIn).apply { setPhysicalCameraId(sbsLeftPhysicalId) }
-        val outRight =
-            OutputConfiguration(rightIn).apply { setPhysicalCameraId(sbsRightPhysicalId) }
+        // 🔹 Use left eye also for on-screen preview (single-eye preview)
+        val previewSurf = findPreviewSurface()
+
+        val outputs = mutableListOf<OutputConfiguration>()
+        outputs += OutputConfiguration(leftIn).apply { setPhysicalCameraId(sbsLeftPhysicalId) }
+        outputs += OutputConfiguration(rightIn).apply { setPhysicalCameraId(sbsRightPhysicalId) }
+
+        if (previewSurf != null) {
+            outputs += OutputConfiguration(previewSurf).apply {
+                setPhysicalCameraId(sbsLeftPhysicalId)   // bind preview to left eye
+            }
+        }
 
         val exec = { r: Runnable -> (camHandler ?: mainHandler).post(r) }
 
@@ -1803,8 +1827,12 @@ class Camera2Controller(
                 sbsSession = session
                 try {
                     val b = dev.createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
+                        // GL compositor inputs
                         addTarget(leftIn)
                         addTarget(rightIn)
+                        // PreviewView target (left eye only)
+                        previewSurf?.let { addTarget(it) }
+
                         set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
                         set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
                         set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, sbsFps)
@@ -1816,6 +1844,7 @@ class Camera2Controller(
                         set(CaptureRequest.EDGE_MODE, CaptureRequest.EDGE_MODE_HIGH_QUALITY)
                         set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_OFF)
                     }
+
                     session.setRepeatingRequest(b.build(), null, camHandler)
 
                     pipeline = Pipeline.SBS3D
@@ -1836,13 +1865,12 @@ class Camera2Controller(
                 onError(IllegalStateException("SBS configure failed"))
             }
 
-            override fun onClosed(session: CameraCaptureSession) { /* no-op */
-            }
+            override fun onClosed(session: CameraCaptureSession) { /* no-op */ }
         }
 
         val sessionConfig = SessionConfiguration(
             SessionConfiguration.SESSION_REGULAR,
-            listOf(outLeft, outRight),
+            outputs,
             { runnable -> exec(runnable) },
             sessionCallback
         )
@@ -1853,6 +1881,7 @@ class Camera2Controller(
             onError(t)
         }
     }
+
 
     @RequiresApi(29)
     private fun openConcurrentDualSessions(

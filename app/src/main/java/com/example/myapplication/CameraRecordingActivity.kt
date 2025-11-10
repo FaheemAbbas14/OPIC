@@ -87,6 +87,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
 import kotlin.math.roundToInt
+
 // ADD these for 3D photo
 
 class CameraRecordingActivity : ComponentActivity() {
@@ -117,7 +118,7 @@ class CameraRecordingActivity : ComponentActivity() {
     private lateinit var modeController: ModeSelectorController
 
     // ——— Mode & state ———
-    private enum class CaptureMode { PHOTO, VIDEO, TIMELAPSE,SLOWMO,THREEDPHOTO,THREEDVIDEO}
+    private enum class CaptureMode { PHOTO, VIDEO, TIMELAPSE, SLOWMO, THREEDPHOTO, THREEDVIDEO }
 
     private var captureMode: CaptureMode = CaptureMode.VIDEO
     private var isRecording = false
@@ -379,7 +380,7 @@ class CameraRecordingActivity : ComponentActivity() {
                         ) {
                             return@launch
                         }
-                        slowMoOption.timerText= selectedOption?.label!!
+                        slowMoOption.timerText = selectedOption?.label!!
                         controller.bindSlowMo(selectedOption!!) { e ->
                             Log.e("Hybrid", "Slow-mo bind failed", e)
                             runOnUiThread {
@@ -396,6 +397,7 @@ class CameraRecordingActivity : ComponentActivity() {
                         afterBindCommon()
                         zoomControlAdapter()
                     }
+
                     CaptureMode.THREEDPHOTO -> {
 
                         controller.release()
@@ -406,7 +408,7 @@ class CameraRecordingActivity : ComponentActivity() {
                         ) {
                             return@launch
                         }
-                        slowMoOption.timerText= selectedOption?.label!!
+                        slowMoOption.timerText = selectedOption?.label!!
                         controller.bindTHREED(selectedOption!!) { e ->
                             Log.e("Hybrid", "3D bind failed", e)
                             runOnUiThread {
@@ -423,6 +425,7 @@ class CameraRecordingActivity : ComponentActivity() {
                         afterBindCommon()
                         zoomControlAdapter()
                     }
+
                     CaptureMode.THREEDVIDEO -> {
                         controller.release()
                         if (ActivityCompat.checkSelfPermission(
@@ -432,7 +435,7 @@ class CameraRecordingActivity : ComponentActivity() {
                         ) {
                             return@launch
                         }
-                        slowMoOption.timerText= selectedOption?.label!!
+                        slowMoOption.timerText = selectedOption?.label!!
                         controller.bindTHREED(selectedOption!!) { e ->
                             Log.e("Hybrid", "3D bind failed", e)
                             runOnUiThread {
@@ -449,6 +452,7 @@ class CameraRecordingActivity : ComponentActivity() {
                         afterBindCommon()
                         zoomControlAdapter()
                     }
+
                     CaptureMode.TIMELAPSE -> {
                         // ✅ Timelapse uses CameraX video bind (not Camera2 slow-mo)
                         controller.release()
@@ -532,6 +536,7 @@ class CameraRecordingActivity : ComponentActivity() {
                                         }
                                     )
                                 }
+
                                 CaptureMode.THREEDVIDEO -> {
                                     keepDeviceAwake(false)
                                     controller.stopRecording(
@@ -548,6 +553,7 @@ class CameraRecordingActivity : ComponentActivity() {
                                         }
                                     )
                                 }
+
                                 CaptureMode.TIMELAPSE -> {
                                     keepDeviceAwake(false)
                                     controller.stopLapseVideo(
@@ -695,7 +701,7 @@ class CameraRecordingActivity : ComponentActivity() {
         controller.take3DPhoto(
             withAudio = true,
             onStarted = { isRecording = true },
-            onSaved = { uri -> showMediaPopup(uri,true) },
+            onSaved = { uri -> showMediaPopup(uri, true) },
             onError = { e ->
                 e.printStackTrace()
                 stopTimer()
@@ -896,15 +902,15 @@ class CameraRecordingActivity : ComponentActivity() {
 
     private fun updateUiForMode() {
         timerView.visibility = if (captureMode != CaptureMode.PHOTO) View.VISIBLE else View.GONE
-        if (captureMode == CaptureMode.PHOTO ||captureMode == CaptureMode.THREEDPHOTO ) {
+        if (captureMode == CaptureMode.PHOTO || captureMode == CaptureMode.THREEDPHOTO) {
             videobuttonRecording.setBackgroundResource(R.drawable.circle_button_bg)
             videobuttonRecording.setImageResource(R.drawable.ic_camera)
             timerView.isTimerRunning = false
-            timerView.visibility= View.GONE
+            timerView.visibility = View.GONE
         } else {
             videobuttonRecording.setBackgroundResource(R.drawable.circle_button_bg)
             videobuttonRecording.setImageResource(R.drawable.recordicon)
-            timerView.visibility= View.VISIBLE
+            timerView.visibility = View.VISIBLE
         }
     }
 
@@ -935,6 +941,16 @@ class CameraRecordingActivity : ComponentActivity() {
         }
     }
 
+    fun pickBest120FpsOption(options: List<SlowMoOption>): SlowMoOption? {
+        // Keep only the ones that are exactly 120 fps
+        val only120 = options.filter { it.fpsRange.upper == 120 }
+
+        if (only120.isEmpty()) return null
+
+        // Among those, pick the one with the largest resolution
+        return only120.maxByOrNull { it.size.width * it.size.height }
+    }
+
     private fun initAfterPermissions() {
         if (!hasPermissions()) {
             ActivityCompat.requestPermissions(
@@ -949,6 +965,11 @@ class CameraRecordingActivity : ComponentActivity() {
             options = withContext(Dispatchers.Default) {
                 listBackCameraSlowMoOptions(this@CameraRecordingActivity, 60)
             }
+            Log.d("SlowMo", "Available option: ${options}")
+            selectedOption = pickBest120FpsOption(options)
+            Log.d("SlowMo", "Selected option: ${selectedOption}")
+
+
             if (options.isEmpty()) {
                 Toast.makeText(
                     this@CameraRecordingActivity,
@@ -972,7 +993,7 @@ class CameraRecordingActivity : ComponentActivity() {
                     if (captureMode != CaptureMode.SLOWMO) return
                     val newOpt = options[position]
                     if (selectedOption === newOpt) return
-                    selectedOption = newOpt
+
                     rebindForCurrentMode()
                 }
 
@@ -1012,9 +1033,11 @@ class CameraRecordingActivity : ComponentActivity() {
                             CaptureMode.SLOWMO -> {
                                 modeController.setIndex(4); CaptureMode.THREEDPHOTO
                             }
+
                             CaptureMode.THREEDPHOTO -> {
                                 modeController.setIndex(5); CaptureMode.THREEDVIDEO
                             }
+
                             CaptureMode.THREEDVIDEO -> {
                                 modeController.setIndex(0); CaptureMode.VIDEO
                             }
@@ -1025,9 +1048,11 @@ class CameraRecordingActivity : ComponentActivity() {
                             CaptureMode.THREEDVIDEO -> {
                                 modeController.setIndex(4); CaptureMode.THREEDPHOTO
                             }
+
                             CaptureMode.THREEDPHOTO -> {
                                 modeController.setIndex(3); CaptureMode.SLOWMO
                             }
+
                             CaptureMode.SLOWMO -> {
                                 modeController.setIndex(2); CaptureMode.TIMELAPSE
                             }
