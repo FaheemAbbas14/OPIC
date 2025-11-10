@@ -288,6 +288,10 @@ class Camera2Controller(
         start()
         ready = false
         option = opt
+        // 🔹 If we're switching from an already-running mode, show a still overlay
+        if (isSbs3D && cameraDevice != null) {
+            showModeSwitchOverlay()
+        }
 
         manager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
         try {
@@ -315,12 +319,10 @@ class Camera2Controller(
                 //  - 3D: just use option.size (no HS table scanning)
                 //  - Slow-mo: keep auto HS size picker
                 if (isSbs3D) {
-                    activeSize = opt.size
-                    forcedHsRange = null
-                    Log.d(
-                        TAG,
-                        "3D preview: forcing STD size ${activeSize!!.width}x${activeSize!!.height}"
-                    )
+                    autoEnvironmentMode = false
+                    autoEvEnabled = false
+                    pipeline = Pipeline.STD60
+                    // (keep targetFpsForBudget = 60)
                 } else {
                     val wantFps = opt.fpsRange.upper
                     val hsPick =
@@ -770,10 +772,12 @@ class Camera2Controller(
     }
 
     private fun rebuildSession(withRecorder: Boolean, onError: (Throwable) -> Unit = {}) {
-        // guard SBS: its session is managed separately
+        // For full SBS3D recording, session is managed separately
         if (pipeline == Pipeline.SBS3D) return
 
         val dev = cameraDevice ?: return
+
+        // Make sure preview surface exists
         if (!surfaceUsable(previewSurface)) {
             previewSurface = waitForPreviewSurface(currentSize(), 1500)
             if (!surfaceUsable(previewSurface)) {
@@ -784,9 +788,11 @@ class Camera2Controller(
 
         val outputs = mutableListOf<Surface>()
         previewSurface?.let { outputs.add(it) }
+
         val needRecorder = withRecorder && mediaRecorder != null && surfaceUsable(recorderSurface)
         if (needRecorder) {
-            mirrorSurface?.let { outputs.add(it) }  // 🔹 add mirror surface to keep preview alive
+            // If you still want mirrorSurface, add it here
+            mirrorSurface?.let { outputs.add(it) }
             recorderSurface?.let { outputs.add(it) }
         }
 
@@ -796,25 +802,27 @@ class Camera2Controller(
             if (pipeline == Pipeline.HFR) {
                 val template =
                     if (withRecorder) CameraDevice.TEMPLATE_RECORD else CameraDevice.TEMPLATE_PREVIEW
+
                 cameraDevice!!.createConstrainedHighSpeedCaptureSession(
                     outputs,
                     object : CameraCaptureSession.StateCallback() {
                         override fun onConfigured(session: CameraCaptureSession) {
                             captureSession = session
-                            sessionTargets.clear(); sessionTargets.addAll(outputs)
+                            sessionTargets.clear()
+                            sessionTargets.addAll(outputs)
                             sessionHasRecorder = needRecorder
-                            try {
-                                val template =
-                                    if (useTemplateRecordForPreview && needRecorder) CameraDevice.TEMPLATE_RECORD else CameraDevice.TEMPLATE_PREVIEW
-                                val b = buildHfrRequest(template, wantRecorder = needRecorder)
-// 🔹 Always attach preview surface even when recording
-                                previewSurface?.let {
-                                    if (!sessionTargets.contains(it)) b.addTarget(
-                                        it
-                                    )
-                                }
 
-// 🔹 Make sure both surfaces are in the target list
+                            try {
+                                val tpl =
+                                    if (useTemplateRecordForPreview && needRecorder) {
+                                        CameraDevice.TEMPLATE_RECORD
+                                    } else {
+                                        CameraDevice.TEMPLATE_PREVIEW
+                                    }
+
+                                val b = buildHfrRequest(tpl, wantRecorder = needRecorder)
+
+                                // Make sure both targets are attached
                                 previewSurface?.let { if (surfaceUsable(it)) b.addTarget(it) }
                                 recorderSurface?.let { if (surfaceUsable(it)) b.addTarget(it) }
 
@@ -829,12 +837,15 @@ class Camera2Controller(
                                 )
                                 Log.d(
                                     TAG,
-                                    "Preview surface valid=${previewSurface?.isValid} attached=${
-                                        sessionContains(previewSurface)
-                                    }"
+                                    "Preview surface valid=${previewSurface?.isValid} attached=${sessionContains(previewSurface)}"
                                 )
 
-                                onNewSessionConfigured(); logMode("Preview HFR")
+                                // Smooth switch visuals + logging
+                                onNewSessionConfigured()
+                                logMode("Preview HFR")
+
+                                // 🔹 New live preview is up → hide frozen overlay if any
+                                hideModeSwitchOverlay()
                             } catch (e: Exception) {
                                 onError(e)
                             }
@@ -847,7 +858,8 @@ class Camera2Controller(
                         override fun onClosed(session: CameraCaptureSession) {
                             sessionClosedLatch?.countDown()
                         }
-                    }, camHandler
+                    },
+                    camHandler
                 )
             } else {
                 cameraDevice!!.createCaptureSession(
@@ -855,8 +867,10 @@ class Camera2Controller(
                     object : CameraCaptureSession.StateCallback() {
                         override fun onConfigured(session: CameraCaptureSession) {
                             captureSession = session
-                            sessionTargets.clear(); sessionTargets.addAll(outputs)
+                            sessionTargets.clear()
+                            sessionTargets.addAll(outputs)
                             sessionHasRecorder = needRecorder
+
                             try {
                                 val fps = when (pipeline) {
                                     Pipeline.STD60 -> pickStd60FpsRange() ?: Range(60, 60)
@@ -864,11 +878,14 @@ class Camera2Controller(
                                     Pipeline.TIMELAPSE -> pickStd60FpsRange() ?: Range(60, 60)
                                     else -> Range(60, 60)
                                 }
+
                                 val template =
-                                    if (needRecorder) CameraDevice.TEMPLATE_RECORD else CameraDevice.TEMPLATE_PREVIEW
+                                    if (needRecorder) CameraDevice.TEMPLATE_RECORD
+                                    else CameraDevice.TEMPLATE_PREVIEW
+
                                 val b = buildStdRequest(template, needRecorder, fps)
 
-// 🔹 Make sure both surfaces are in the target list
+                                // Make sure both surfaces are in the target list
                                 previewSurface?.let { if (surfaceUsable(it)) b.addTarget(it) }
                                 recorderSurface?.let { if (surfaceUsable(it)) b.addTarget(it) }
 
@@ -879,7 +896,12 @@ class Camera2Controller(
                                     TAG,
                                     "Preview ${pipeline.name}; range=$fps size=${currentSize().width}x${currentSize().height}"
                                 )
-                                onNewSessionConfigured(); logMode("Preview ${pipeline.name}")
+
+                                onNewSessionConfigured()
+                                logMode("Preview ${pipeline.name}")
+
+                                // 🔹 New live preview (incl. SBS-photo 60fps) is up → hide frozen overlay
+                                hideModeSwitchOverlay()
                             } catch (e: Exception) {
                                 onError(e)
                             }
@@ -892,13 +914,15 @@ class Camera2Controller(
                         override fun onClosed(session: CameraCaptureSession) {
                             sessionClosedLatch?.countDown()
                         }
-                    }, camHandler
+                    },
+                    camHandler
                 )
             }
         } catch (e: Exception) {
             onError(e)
         }
     }
+
 
     private fun onNewSessionConfigured() {
         if (!isSwitching) return
@@ -2180,19 +2204,49 @@ class Camera2Controller(
         val stateCb = object : CameraDevice.StateCallback() {
             override fun onOpened(device: CameraDevice) {
                 try {
-                    val outLeft =
-                        OutputConfiguration(leftSurface).apply { setPhysicalCameraId(leftId) }
-                    val outRight =
-                        OutputConfiguration(rightSurface).apply { setPhysicalCameraId(rightId) }
+                    val previewSurf = findPreviewSurface()
+
+                    val outputs = mutableListOf<OutputConfiguration>().apply {
+                        // GL inputs for left/right SBS JPEGs
+                        add(OutputConfiguration(leftSurface).apply { setPhysicalCameraId(leftId) })
+                        add(OutputConfiguration(rightSurface).apply { setPhysicalCameraId(rightId) })
+
+                        // 🔹 Single-eye preview: bind PreviewView to left physical camera
+                        previewSurf?.let {
+                            add(OutputConfiguration(it).apply { setPhysicalCameraId(leftId) })
+                        }
+                    }
 
                     val sessionCfg = SessionConfiguration(
                         SessionConfiguration.SESSION_REGULAR,
-                        listOf(outLeft, outRight),
+                        outputs,
                         { r -> (camHandler ?: mainHandler).post(r) },
                         object : CameraCaptureSession.StateCallback() {
                             override fun onConfigured(session: CameraCaptureSession) {
                                 try {
-                                    val req =
+                                    // 1️⃣ Keep live preview running (left eye only)
+                                    previewSurf?.let { ps ->
+                                        val previewReq =
+                                            device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
+                                                addTarget(ps)
+                                                set(
+                                                    CaptureRequest.CONTROL_MODE,
+                                                    CaptureRequest.CONTROL_MODE_AUTO
+                                                )
+                                                set(
+                                                    CaptureRequest.CONTROL_AE_MODE,
+                                                    CaptureRequest.CONTROL_AE_MODE_ON
+                                                )
+                                                set(
+                                                    CaptureRequest.CONTROL_AWB_MODE,
+                                                    CaptureRequest.CONTROL_AWB_MODE_AUTO
+                                                )
+                                            }
+                                        session.setRepeatingRequest(previewReq.build(), null, camHandler)
+                                    }
+
+                                    // 2️⃣ Fire one-shot FULL-SBS still capture
+                                    val stillReq =
                                         device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)
                                             .apply {
                                                 addTarget(leftSurface)
@@ -2210,7 +2264,8 @@ class Camera2Controller(
                                                     CaptureRequest.CONTROL_AWB_MODE_AUTO
                                                 )
                                             }
-                                    session.capture(req.build(), null, camHandler)
+
+                                    session.capture(stillReq.build(), null, camHandler)
                                 } catch (t: Throwable) {
                                     onError(t)
                                 }
@@ -2354,6 +2409,38 @@ class Camera2Controller(
             fl?.firstOrNull() ?: 0f
         } catch (_: Throwable) {
             0f
+        }
+    }
+    private fun showModeSwitchOverlay() {
+        // If we already have an overlay, don't recreate
+        if (freezeDrawable != null) return
+
+        val snapshot = capturePreviewBitmapSafely()
+        if (snapshot != null) {
+            val drawable = BitmapDrawable(previewView.resources, snapshot).apply {
+                alpha = 255
+            }
+            freezeDrawable = drawable
+            mainHandler.post {
+                previewView.overlay.add(drawable)
+            }
+        }
+    }
+
+    private fun hideModeSwitchOverlay() {
+        mainHandler.post {
+            freezeDrawable?.let { drawable ->
+                ObjectAnimator.ofInt(drawable, "alpha", 255, 0).apply {
+                    duration = 180L
+                    addListener(onEnd = {
+                        previewView.overlay.remove(drawable)
+                        freezeDrawable = null
+                    })
+                    start()
+                }
+            } ?: run {
+                freezeDrawable = null
+            }
         }
     }
 
